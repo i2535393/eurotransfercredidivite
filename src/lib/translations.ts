@@ -76,6 +76,8 @@ export interface TranslationDictionary {
   processing_routing: string;
   processing_protocol: string;
   notification: string;
+  processing_sec_active: string;
+  processing_sec_text: string;
 }
 
 const translations: Record<string, TranslationDictionary> = {
@@ -156,7 +158,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Vérification des taux de change interbancaires...",
     processing_routing: "Routage du capital d'évaluation...",
     processing_protocol: "Application du protocole d'arrêt réglementaire...",
-    notification: "Értesítés"
+    notification: "Notification",
+    processing_sec_active: "Connexion sécurisée active",
+    processing_sec_text: "Ne fermez pas la page"
   },
   english: {
     login_title: "Log in to your account.",
@@ -235,7 +239,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Verifying interbank exchange rates...",
     processing_routing: "Routing evaluation capital...",
     processing_protocol: "Applying regulatory halt protocol...",
-    notification: "Notification"
+    notification: "Notification",
+    processing_sec_active: "Secure connection active",
+    processing_sec_text: "Do not close the page"
   },
   deutsch: {
     login_title: "Melden Sie sich bei Ihrem Konto an.",
@@ -314,7 +320,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Interbanken-Wechselkurse werden geprüft...",
     processing_routing: "Bewertungskapital wird weitergeleitet...",
     processing_protocol: "Regulatorisches Stopp-Protokoll wird angewendet...",
-    notification: "Benachrichtigung"
+    notification: "Benachrichtigung",
+    processing_sec_active: "Sichere Verbindung aktiv",
+    processing_sec_text: "Schließen Sie diese Seite nicht"
   },
   español: {
     login_title: "Inicie sesión en su cuenta.",
@@ -393,7 +401,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Verificando tipos de cambio interbancarios...",
     processing_routing: "Enrutando capital de evaluación...",
     processing_protocol: "Aplicando protocolo de parada regulatoria...",
-    notification: "Notificación"
+    notification: "Notificación",
+    processing_sec_active: "Conexión segura activa",
+    processing_sec_text: "No cierre esta página"
   },
   português: {
     login_title: "Faça login na sua conta.",
@@ -472,7 +482,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Verificando taxas de câmbio interbancárias...",
     processing_routing: "Roteando capital de avaliação...",
     processing_protocol: "Aplicando protocolo de parada regulatória...",
-    notification: "Notificação"
+    notification: "Notificação",
+    processing_sec_active: "Conexão segura ativa",
+    processing_sec_text: "Não feche esta página"
   },
   italiano: {
     login_title: "Accedi al tuo account.",
@@ -551,7 +563,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Verifica dei tassi di cambio interbancari...",
     processing_routing: "Instradamento del capitale di valutazione...",
     processing_protocol: "Applicazione del protocollo di arresto normativo...",
-    notification: "Notifica"
+    notification: "Notifica",
+    processing_sec_active: "Connessione sicura attiva",
+    processing_sec_text: "Non chiudere questa pagina"
   },
   magyar: {
     login_title: "Jelentkezzen be fiókjába.",
@@ -630,7 +644,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Bankközi devizaárfolyamok ellenőrzése...",
     processing_routing: "Értékelési tőke átirányítása...",
     processing_protocol: "Szabályozási leállítási protokoll alkalmazása...",
-    notification: "Értesítés"
+    notification: "Értesítés",
+    processing_sec_active: "Biztonságos kapcsolat aktív",
+    processing_sec_text: "Ne zárja be az oldalt"
   },
   română: {
     login_title: "Conectați-vă la contul dvs.",
@@ -709,7 +725,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Se verifică ratele de schimb interbancare...",
     processing_routing: "Direcționarea capitalului de evaluare...",
     processing_protocol: "Se aplică protocolul de oprire reglementară...",
-    notification: "Notificare"
+    notification: "Notificare",
+    processing_sec_active: "Conexiune securizată activă",
+    processing_sec_text: "Nu închideți pagina"
   },
   polski: {
     login_title: "Zaloguj się na swoje konto.",
@@ -788,7 +806,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Weryfikowanie międzybankowych kursów walut...",
     processing_routing: "Kierowanie kapitału oceny...",
     processing_protocol: "Stosowanie regulacyjnego protokołu zatrzymania...",
-    notification: "Powiadomienie"
+    notification: "Powiadomienie",
+    processing_sec_active: "Bezpieczne połączenie aktywne",
+    processing_sec_text: "Nie zamykaj tej strony"
   },
   türkçe: {
     login_title: "Hesabınıza giriş yapın.",
@@ -867,7 +887,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Bankalararası döviz kurları doğrulanıyor...",
     processing_routing: "Değerlendirme sermayesi yönlendiriliyor...",
     processing_protocol: "Düzenleyici durdurma protokolü uygulanıyor...",
-    notification: "Bildirim"
+    notification: "Bildirim",
+    processing_sec_active: "Güvenli bağlantı aktif",
+    processing_sec_text: "Sayfayı kapatmayın"
   },
   nederlands: {
     login_title: "Meld u aan bij uw account.",
@@ -946,7 +968,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Interbancaire wisselkoersen controleren...",
     processing_routing: "Routage van evaluatiekapitaal...",
     processing_protocol: "Toepassen van wettelijk stop-protocol...",
-    notification: "Melding"
+    notification: "Melding",
+    processing_sec_active: "Beveiligde verbinding actief",
+    processing_sec_text: "Sluit deze pagina niet"
   },
   russkiy: {
     login_title: "Войдите в свой личный кабинет.",
@@ -1025,7 +1049,9 @@ const translations: Record<string, TranslationDictionary> = {
     processing_exchange: "Проверка межбанковских курсов обмена...",
     processing_routing: "Маршрутизация оценочного капитала...",
     processing_protocol: "Применение протокола регулирующей остановки...",
-    notification: "Уведомление"
+    notification: "Уведомление",
+    processing_sec_active: "Безопасное соединение активно",
+    processing_sec_text: "Не закрывайте эту страницу"
   }
 };
 

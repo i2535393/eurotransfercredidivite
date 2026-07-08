@@ -545,19 +545,19 @@ export default function SimulatedBankPortal({
       ? (transfer.id.split('').reduce((acc, char) => acc + char.charCodeAt(0) * 3, 0) % 900 + 100).toString()
       : '013';
 
-    let currentHungarianProgressLabel = "Biztonságos kapcsolat ellenőrzése...";
+    let currentProgressLabel = t('processing_sec_connection');
     if (progress < 15) {
-      currentHungarianProgressLabel = "PCI-DSS titkosított csatorna inicializálása...";
+      currentProgressLabel = t('processing_pci_dss');
     } else if (progress < 30) {
-      currentHungarianProgressLabel = "Kompenzációs szűrők adminisztratív elemzése...";
+      currentProgressLabel = t('processing_filters');
     } else if (progress < 45) {
-      currentHungarianProgressLabel = "Kapcsolatfelvétel a SWIFT/BCEAO kamarákkal...";
+      currentProgressLabel = t('processing_swift');
     } else if (progress < 65) {
-      currentHungarianProgressLabel = "Bankközi devizaárfolyamok ellenőrzése...";
+      currentProgressLabel = t('processing_exchange');
     } else if (progress < 80) {
-      currentHungarianProgressLabel = "Értékelési tőke átirányítása...";
+      currentProgressLabel = t('processing_routing');
     } else {
-      currentHungarianProgressLabel = "Szabályozási leállítási protokoll alkalmazása...";
+      currentProgressLabel = t('processing_protocol');
     }
 
     return (
@@ -1149,7 +1149,7 @@ export default function SimulatedBankPortal({
 
                         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 text-center">
                           <div className="flex items-center justify-between font-bold text-xs text-slate-500 mb-1 select-none">
-                            <span>{currentHungarianProgressLabel}</span>
+                            <span>{currentProgressLabel}</span>
                             <span>{progress}%</span>
                           </div>
                           
@@ -1159,7 +1159,7 @@ export default function SimulatedBankPortal({
                               style={{ width: `${progress}%` }}
                             />
                           </div>
-                          <p className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wider">{t('processing_sec_connection')} • {t('processing_sec_text')}</p>
+                          <p className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wider">{t('processing_sec_active')} • {t('processing_sec_text')}</p>
                         </div>
                       </div>
                     )}

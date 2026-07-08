@@ -688,23 +688,24 @@ export default function App() {
 
   const onUpdateTransferAmount = (id: string, newAmount: number) => {
     setTransfers(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, amount: newAmount } : t);
+      const updated = prev.map(t => t.id === id ? { ...t, amount: newAmount, customBalance: newAmount } : t);
       const found = updated.find(t => t.id === id);
       if (found) {
         saveTransferToDb(found);
       }
       return updated;
     });
-    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, amount: newAmount } : prev);
+    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, amount: newAmount, customBalance: newAmount } : prev);
   };
 
-  const onUpdatePercentages = (id: string, start: number, stop: number, message: string) => {
+  const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number) => {
     setTransfers(prev => {
       const updated = prev.map(t => t.id === id ? {
         ...t,
         startPercentage: start,
         stopPercentage: stop,
         customMessage: message,
+        customBalance: customBalance,
         otpCode: Math.floor(100000 + Math.random() * 900000).toString() // Generate a new release key
       } : t);
       const found = updated.find(t => t.id === id);
@@ -713,7 +714,7 @@ export default function App() {
       }
       return updated;
     });
-    onCreateToast('Mise à jour des pourcentages effectuée !');
+    onCreateToast('Mise à jour effectuée avec succès !');
   };
 
   const onSetBlockedState = (id: string, isBlocked: boolean) => {

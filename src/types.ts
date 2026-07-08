@@ -82,6 +82,7 @@ export interface SimulatedTransfer {
   // Simulation progressive state (for active rendering)
   isCompleted: boolean;
   emails?: SimulatedEmail[];
+  customBalance?: number;
 }
 
 export interface SimulatedEmail {

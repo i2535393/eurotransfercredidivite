@@ -31,7 +31,7 @@ interface FlashCompteV2Props {
   setActiveTab: (tab: string) => void;
   setLiveSimulationTx: (transfer: SimulatedTransfer) => void;
   transfers: SimulatedTransfer[];
-  onUpdatePercentages: (id: string, start: number, stop: number, message: string) => void;
+  onUpdatePercentages: (id: string, start: number, stop: number, message: string, customBalance?: number) => void;
   onSetBlockedState: (id: string, isBlocked: boolean) => void;
   deductBalance: (amount: number) => void;
   balance: number;
@@ -245,6 +245,7 @@ export default function FlashCompteV2({
   const [updateStartPercent, setUpdateStartPercent] = useState(20);
   const [updateStopPercent, setUpdateStopPercent] = useState(100);
   const [updateMessage, setUpdateMessage] = useState('');
+  const [updateCustomBalance, setUpdateCustomBalance] = useState<string>('');
 
   // FORM 3: BLOCK / UNBLOCK
   const [selectedBlockId, setSelectedBlockId] = useState('');
@@ -267,10 +268,12 @@ export default function FlashCompteV2({
       setUpdateStartPercent(target.startPercentage);
       setUpdateStopPercent(target.stopPercentage);
       setUpdateMessage(target.customMessage);
+      setUpdateCustomBalance(target.customBalance !== undefined ? target.customBalance.toString() : target.amount.toString());
     } else {
       setUpdateStartPercent(20);
       setUpdateStopPercent(100);
       setUpdateMessage('');
+      setUpdateCustomBalance('');
     }
   };
 
@@ -356,14 +359,17 @@ export default function FlashCompteV2({
       alert('Veuillez sélectionner un accès.');
       return;
     }
+    const balanceNum = parseFloat(updateCustomBalance);
     onUpdatePercentages(
       selectedUpdateId, 
       Number(updateStartPercent), 
       Number(updateStopPercent), 
-      updateMessage
+      updateMessage,
+      isNaN(balanceNum) ? undefined : balanceNum
     );
     setSelectedUpdateId('');
     setUpdateMessage('');
+    setUpdateCustomBalance('');
   };
 
   const handleCopyToClipboard = (text: string, toastMessage: string) => {
@@ -804,6 +810,41 @@ export default function FlashCompteV2({
                     />
                   </div>
 
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      Solde de l'espace bancaire client ({getSelectedClientInfoForUpdate()?.currency || 'EUR'})
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        step="any"
+                        required
+                        value={updateCustomBalance}
+                        onChange={(e) => setUpdateCustomBalance(e.target.value)}
+                        className="flex-1 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-white"
+                        placeholder="Modifier le solde"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const info = getSelectedClientInfoForUpdate();
+                          if (info) {
+                            setUpdateCustomBalance(info.amount.toString());
+                            onCreateToast("Solde réinitialisé au montant initial !");
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-slate-800"
+                        title="Réinitialiser au montant initial du flash compte"
+                      >
+                        <RefreshCw size={12} className="text-indigo-400" />
+                        Réinitialiser
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-normal">
+                      Modifiez le solde en direct de l'espace client ou cliquez sur réinitialiser pour reprendre le montant initial ({getSelectedClientInfoForUpdate()?.amount.toLocaleString('fr-FR')} {getSelectedClientInfoForUpdate()?.currency}).
+                    </p>
+                  </div>
+
                   {/* Real-time Update Recap Block */}
                   <div className="bg-indigo-950/20 border border-indigo-900/30 rounded-2xl p-3.5 text-[11px] font-mono text-slate-400 space-y-1">
                     <span className="text-white font-bold block mb-1.5 flex items-center gap-1.5">
@@ -812,6 +853,7 @@ export default function FlashCompteV2({
                     <div>⚬ Client : <strong className="text-slate-200">{getSelectedClientInfoForUpdate()?.recipientName || 'N/A'}</strong></div>
                     <div>⚬ Nouveau pourcentage départ : <strong className="text-blue-400">{updateStartPercent}%</strong></div>
                     <div>⚬ Nouveau pourcentage arrêt : <strong className="text-amber-500">{updateStopPercent}%</strong></div>
+                    <div>⚬ Nouveau solde configuré : <strong className="text-emerald-400">{(parseFloat(updateCustomBalance) || 0).toLocaleString('fr-FR')} {getSelectedClientInfoForUpdate()?.currency}</strong></div>
                     <div>⚬ Message : <span className="text-slate-300 block bg-slate-950 p-2 rounded border border-slate-850 mt-1 italic">"{updateMessage || 'N/A'}"</span></div>
                     <p className="text-[9px] text-indigo-400/80 mt-1.5 uppercase font-bold leading-tight">
                       NB : Un nouveau code OTP de déblocage 3D-secure sera automatiquement synchronisé à la mise à jour.

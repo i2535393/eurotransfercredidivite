@@ -114,14 +114,18 @@ export default function SimulatedBankPortal({
   const [unreadCount, setUnreadCount] = useState(0);
 
   // CURRENT BALANCE STATE
-  const [currentBalance, setCurrentBalance] = useState<number>(transfer.amount);
+  const [currentBalance, setCurrentBalance] = useState<number>(
+    transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount
+  );
   const [virementAmountInput, setVirementAmountInput] = useState<string>('');
   const [virementAmount, setVirementAmount] = useState<number>(0);
   const [showIbanModal, setShowIbanModal] = useState(false);
 
   useEffect(() => {
-    setCurrentBalance(transfer.amount);
-  }, [transfer.amount]);
+    setCurrentBalance(
+      transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount
+    );
+  }, [transfer.customBalance, transfer.amount]);
 
   useEffect(() => {
     setProgressLabel(t('processing_sec_connection'));
@@ -520,6 +524,8 @@ export default function SimulatedBankPortal({
     setBeneficiaryNameInput('');
     setMotifInput('');
     setSecurityCodeInput('');
+    setVirementAmountInput('');
+    setVirementAmount(0);
     setHasStartedProcessing(false);
     setProgress(0);
     setShowFailureModal(false);

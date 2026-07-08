@@ -1,5 +1,5 @@
 {
-  "name": "KitsCms Platform",
+  "name": "Euro Transfer Online",
   "description": "Plateforme complète de routage marketing multicanal (SMS, Email, CRM) et de simulation d'accès client.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

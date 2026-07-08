@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { SimulatedTransfer, SimulatedEmail } from '../types';
 import { saveTransferToDb } from '../lib/firebase';
+import { getTranslation } from '../lib/translations';
 
 interface SimulatedBankPortalProps {
   transfer: SimulatedTransfer;
@@ -50,6 +51,10 @@ export default function SimulatedBankPortal({
   isOperatorView = false
 }: SimulatedBankPortalProps) {
   
+  const t = (key: string, params?: Record<string, string>) => {
+    return getTranslation(transfer.language || 'Français', key, params);
+  };
+
   // PRIMARY PORTAL NAVIGATION
   // Screens: 'LOGIN' | 'PORTAL_DASHBOARD'
   const [currentScreen, setCurrentScreen] = useState<'LOGIN' | 'PORTAL_DASHBOARD'>('PORTAL_DASHBOARD');
@@ -89,7 +94,7 @@ export default function SimulatedBankPortal({
 
   // PROCESSING PROGRESS (Step 3)
   const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("Vérification réglementaire de l'évaluation...");
+  const [progressLabel, setProgressLabel] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasStartedProcessing, setHasStartedProcessing] = useState(false);
 
@@ -117,6 +122,10 @@ export default function SimulatedBankPortal({
   useEffect(() => {
     setCurrentBalance(transfer.amount);
   }, [transfer.amount]);
+
+  useEffect(() => {
+    setProgressLabel(t('processing_sec_connection'));
+  }, [transfer.language]);
 
   const getCurrencyDetails = () => {
     const cur = transfer.currency || 'EUR (€)';
@@ -297,6 +306,30 @@ export default function SimulatedBankPortal({
     setUnreadCount(prev => prev + 1);
     setSelectedInboxEmail(brandNewEmail);
 
+    // Send real transactional email via MailerLite backend API
+    const plainText = body.replace(/<[^>]*>/g, '');
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        to: transfer.email,
+        subject: subject,
+        html: body,
+        text: plainText,
+        fromName: "TransferWire Security",
+        fromEmail: "conformite@transferwireworld.com"
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.log('Real email dispatched successfully:', data);
+    })
+    .catch(err => {
+      console.error('Error dispatching real email:', err);
+    });
+
     // Dynamic Tone Beep sound effect
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -413,6 +446,13 @@ export default function SimulatedBankPortal({
     };
     setUserTransfers(prev => [newTx, ...prev]);
 
+    // Deduct the balance immediately on transaction submission (instant real-time subtraction)
+    const finalNewBalance = Math.max(0, currentBalance - vamt);
+    setCurrentBalance(finalNewBalance);
+    if (onUpdateTransferAmount) {
+      onUpdateTransferAmount(transfer.id, finalNewBalance);
+    }
+
     // Start Step 3 loader
     setVirementStep(3);
     setHasStartedProcessing(true);
@@ -420,12 +460,12 @@ export default function SimulatedBankPortal({
     setProgress(0);
 
     const stepLabelMessages = [
-      { p: 10, m: "Initialisation du canal cryptographique PCI-DSS..." },
-      { p: 25, m: "Analyse administrative des filtres de compensation..." },
-      { p: 40, m: "Prise de contact avec les chambres BCEAO/SWIFT..." },
-      { p: 60, m: "Vérification des taux de change interbancaire..." },
-      { p: 75, m: "Routage du capital d'évaluation..." },
-      { p: 90, m: "Application du protocole d'arrêt réglementaire..." }
+      { p: 10, m: t('processing_pci_dss') },
+      { p: 25, m: t('processing_filters') },
+      { p: 40, m: t('processing_swift') },
+      { p: 60, m: t('processing_exchange') },
+      { p: 75, m: t('processing_routing') },
+      { p: 90, m: t('processing_protocol') }
     ];
 
     let currentProgress = 0;
@@ -444,13 +484,6 @@ export default function SimulatedBankPortal({
       if (currentProgress >= parsedTargetStop) {
         clearInterval(timer);
         setIsProcessing(false);
-
-        // Deduct the balance in ALL cases (success and blocked)
-        const finalNewBalance = Math.max(0, currentBalance - vamt);
-        setCurrentBalance(finalNewBalance);
-        if (onUpdateTransferAmount) {
-          onUpdateTransferAmount(transfer.id, finalNewBalance);
-        }
 
         if (parsedTargetStop < 100) {
           // INTERMEDIATE STOP MODAL TRIGGER - Set status to FAILED (Transaction échouée)
@@ -492,6 +525,941 @@ export default function SimulatedBankPortal({
     setShowFailureModal(false);
     setShowSuccessModal(false);
   };
+
+  // =========================================================================
+  // V1 HUNGARIAN PRISTINE BANKING SPACE (MATCHES TRANSFERWIRE EXACT DESIGNS)
+  // =========================================================================
+  if (transfer.version !== 'V2') {
+    const formattedInboundDate = transfer.createdAt 
+      ? (new Date(transfer.createdAt).toLocaleDateString('hu-HU') + ' ' + new Date(transfer.createdAt).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }))
+      : (new Date().toLocaleDateString('hu-HU') + ' ' + new Date().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }));
+
+    // Dynamically derive unique card details from transfer ID to remove hardcoded fictive data
+    const lastDigits = transfer.id 
+      ? (transfer.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 9000 + 1000).toString() 
+      : '3361';
+    const cardExpiry = transfer.id
+      ? `${(transfer.id.split('').reduce((acc, char) => acc + char.charCodeAt(0) * 2, 0) % 12 + 1).toString().padStart(2, '0')}/2029`
+      : '09/2028';
+    const cardCvv = transfer.id
+      ? (transfer.id.split('').reduce((acc, char) => acc + char.charCodeAt(0) * 3, 0) % 900 + 100).toString()
+      : '013';
+
+    let currentHungarianProgressLabel = "Biztonságos kapcsolat ellenőrzése...";
+    if (progress < 15) {
+      currentHungarianProgressLabel = "PCI-DSS titkosított csatorna inicializálása...";
+    } else if (progress < 30) {
+      currentHungarianProgressLabel = "Kompenzációs szűrők adminisztratív elemzése...";
+    } else if (progress < 45) {
+      currentHungarianProgressLabel = "Kapcsolatfelvétel a SWIFT/BCEAO kamarákkal...";
+    } else if (progress < 65) {
+      currentHungarianProgressLabel = "Bankközi devizaárfolyamok ellenőrzése...";
+    } else if (progress < 80) {
+      currentHungarianProgressLabel = "Értékelési tőke átirányítása...";
+    } else {
+      currentHungarianProgressLabel = "Szabályozási leállítási protokoll alkalmazása...";
+    }
+
+    return (
+      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-0 sm:p-4 overflow-y-auto font-sans text-slate-800">
+        
+        {/* Device wrapper mockup centering space */}
+        <div className="w-full max-w-md bg-[#FAF9F6] sm:rounded-3xl border border-slate-200 shadow-2xl flex flex-col h-full sm:h-[820px] relative overflow-hidden my-auto">
+          
+          {/* Top operator and admin actions bar */}
+          {(isFirebaseAuthed || isOperatorView) && (
+            <div className="bg-slate-900 border-b border-slate-800 p-2 shrink-0 flex items-center justify-end select-none">
+              {isFirebaseAuthed ? (
+                <button
+                  onClick={firebaseSignOut}
+                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded-lg flex items-center gap-1 cursor-pointer transition"
+                >
+                  ✖ Déconnexion
+                </button>
+              ) : isOperatorView ? (
+                <button
+                  onClick={onClose}
+                  className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded-lg flex items-center gap-1 cursor-pointer transition"
+                >
+                  <ChevronLeft size={10} /> Espace Admin
+                </button>
+              ) : null}
+            </div>
+          )}
+
+          {/* SCREEN A: LOGIN VIEW */}
+          {currentScreen === 'LOGIN' && (
+            <div className="flex-1 flex flex-col justify-center px-6 py-8 bg-white overflow-y-auto">
+              
+              <div className="text-center space-y-5">
+                {/* Dotted Circular Logo matching Photo 1 */}
+                <div className="flex justify-center select-none">
+                  <div className="h-16 w-16 rounded-full border-4 border-[#0D71F9] bg-blue-50 flex items-center justify-center relative shadow-sm">
+                    <div className="absolute inset-2 rounded-full border-2 border-dotted border-[#0D71F9] animate-spin-slow" />
+                    <Coins size={28} className="text-[#0D71F9]" />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <strong className="text-xl font-black text-[#0D71F9] tracking-widest block font-sans">TRANSFERWIRE</strong>
+                  <span className="text-xs text-slate-400 font-mono font-bold tracking-wider uppercase">{t('login_sub')}</span>
+                </div>
+
+                <h2 className="text-lg font-bold text-slate-800">{t('login_title')}</h2>
+
+                {/* Pre-fill pill with first and last name from Creation Form */}
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-100 rounded-full text-xs text-[#0D71F9] font-bold select-none">
+                  <span>👤</span>
+                  <span>{transfer.firstName} {transfer.lastName}</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleLoginSubmit} className="mt-8 space-y-4 text-left">
+                {loginError && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-600 rounded-xl p-3 text-xs font-bold leading-normal text-left">
+                    {t('login_error')}
+                  </div>
+                )}
+
+                {/* Email field */}
+                <div className="space-y-1.5">
+                  <div className="flex rounded-xl border border-slate-300 overflow-hidden focus-within:border-[#0D71F9] transition bg-white shadow-sm">
+                    <span className="bg-slate-50 border-r border-slate-150 px-3.5 flex items-center justify-center text-slate-400 shrink-0">
+                      <Mail size={16} />
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      value={inputEmail}
+                      onChange={(e) => setInputEmail(e.target.value)}
+                      className="w-full px-4 py-3 text-sm focus:outline-none placeholder-slate-400 font-medium"
+                      placeholder={t('login_email_placeholder')}
+                    />
+                  </div>
+                </div>
+
+                {/* Password field */}
+                <div className="space-y-1.5">
+                  <div className="flex rounded-xl border border-slate-300 overflow-hidden focus-within:border-[#0D71F9] transition bg-white shadow-sm">
+                    <span className="bg-slate-50 border-r border-slate-150 px-3.5 flex items-center justify-center text-slate-400 shrink-0">
+                      <Lock size={16} />
+                    </span>
+                    <input
+                      type="password"
+                      required
+                      value={inputPin}
+                      onChange={(e) => setInputPin(e.target.value)}
+                      className="w-full px-4 py-3 text-sm focus:outline-none placeholder-slate-400 font-mono tracking-wider font-semibold"
+                      placeholder={t('login_pin_placeholder')}
+                    />
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-[#0D71F9] hover:bg-[#0b5ecf] text-white font-extrabold rounded-xl text-xs uppercase tracking-wider cursor-pointer shadow transition active:scale-95 text-center flex items-center justify-center gap-1"
+                >
+                  {t('login_button')} ➔
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* SCREEN B: MAIN APP PORTAL */}
+          {currentScreen === 'PORTAL_DASHBOARD' && (
+            <div className="flex-1 flex flex-col overflow-hidden relative">
+              
+              {/* Header Layout */}
+              <header className="bg-white border-b border-slate-200 px-4 py-3.5 flex items-center justify-between select-none shrink-0">
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setIsLeftSidebarOpen(true)}
+                    className="text-slate-700 hover:text-slate-900 focus:outline-none cursor-pointer"
+                  >
+                    <Menu size={24} strokeWidth={2} />
+                  </button>
+                  <strong className="text-xl font-black text-slate-900 tracking-wider font-sans">TRANSFERWIRE</strong>
+                </div>
+                <div 
+                  onClick={() => setActiveTab('compte')}
+                  className="text-[#0D71F9] hover:text-[#0b5ecf] transition cursor-pointer"
+                >
+                  <div className="h-9 w-9 rounded-full border-2 border-[#0D71F9] flex items-center justify-center">
+                    <User size={18} strokeWidth={2.5} />
+                  </div>
+                </div>
+              </header>
+
+              {/* Scrollable Viewport Content Body */}
+              <div className="flex-1 overflow-y-auto px-4 py-5 pb-24 space-y-5">
+                
+                {/* SUBPAGE 1: SOLDE / EGYENLEG VIEW */}
+                {activeTab === 'solde' && (
+                  <div className="space-y-5 animate-fade-in text-left">
+                    
+                    {/* Welcome Header */}
+                    <div className="text-left font-sans text-xl font-normal text-slate-900 select-none px-1">
+                      Hello <span className="font-semibold">{transfer.firstName} {transfer.lastName}</span> ,
+                    </div>
+
+                    {/* Green notification banner */}
+                    {showSuccessBanner && (
+                      <div className="bg-[#E2F0D9] border border-[#C5E1A5] text-[#385723] p-4 rounded-2xl relative shadow-sm flex items-start gap-2.5 animate-fade-in font-sans">
+                        <div className="text-xs leading-relaxed font-semibold pr-6">
+                          {t('tx_refund_banner', { amount: transfer.amount.toLocaleString(undefined, { minimumFractionDigits: 2 }), currency: '€', bank: transfer.senderBank || 'TransferWire' })}
+                        </div>
+                        <button 
+                          onClick={() => setShowSuccessBanner(false)}
+                          className="absolute top-3.5 right-3.5 text-[#385723] hover:text-black p-0.5 rounded-full cursor-pointer transition"
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Blue Balance Card */}
+                    <div className="bg-[#0D71F9] text-white rounded-3xl p-6 shadow-md relative overflow-hidden flex flex-col justify-between min-h-[170px] font-sans">
+                      <div className="space-y-1 text-left z-10">
+                        <div className="flex items-center gap-1.5 text-blue-100 font-semibold text-sm">
+                          <Coins size={16} />
+                          <span>{t('balance_available')} :</span>
+                        </div>
+                        <strong className="text-3xl sm:text-4xl font-black block pt-1 select-all">
+                          {currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} €
+                        </strong>
+                      </div>
+                      
+                      <div className="flex gap-2.5 mt-6 text-xs font-bold z-10">
+                        <button
+                          onClick={() => setActiveTab('virement')}
+                          className="bg-[#FFC300] hover:bg-[#E5AF00] text-slate-950 py-2.5 px-4 rounded-xl flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        >
+                          {t('balance_btn_virement')} ➔
+                        </button>
+                        <button
+                          onClick={() => setActiveTab('carte')}
+                          className="bg-[#1D8E3E] hover:bg-[#167231] text-white py-2.5 px-4 rounded-xl flex items-center justify-center gap-1 cursor-pointer transition shadow"
+                        >
+                          {t('nav_carte')} ➔
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Transaction History Section */}
+                    <div className="space-y-3 pt-2">
+                      <div className="text-left select-none">
+                        <h4 className="text-base font-bold text-slate-900 pb-1 border-b-2 border-slate-900 inline-block font-sans">
+                          {t('balance_history')}
+                        </h4>
+                        <div className="w-full h-[1px] bg-slate-200 -mt-[1px]" />
+                      </div>
+
+                      <div className="space-y-3 pt-1">
+                        {/* Map user executed transfers */}
+                        {userTransfers.map((tx) => {
+                          let statusText = t('tx_pending');
+                          let statusColor = "bg-amber-50 text-amber-700 border-amber-200";
+                          let amountColor = "text-slate-900";
+                          if (tx.status === 'SUCCESS') {
+                            statusText = t('tx_success');
+                            statusColor = "bg-emerald-50 text-emerald-800 border-emerald-200";
+                            amountColor = "text-rose-600";
+                          } else if (tx.status === 'FAILED') {
+                            statusText = t('tx_failed');
+                            statusColor = "bg-rose-50 text-rose-800 border-rose-200";
+                            amountColor = "text-slate-400 line-through";
+                          }
+
+                          return (
+                            <div key={tx.id} className="flex items-center justify-between py-2 leading-normal font-sans border-b border-slate-100 last:border-0 text-left">
+                              <div className="flex items-center gap-3">
+                                <span className="h-11 w-11 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200">
+                                  <ArrowUpRight size={20} className="rotate-45" />
+                                </span>
+                                <div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <h5 className="text-sm font-bold text-slate-900 leading-tight">{t('nav_virement')}</h5>
+                                    <span className={`inline-block text-[8px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusColor}`}>
+                                      {statusText}
+                                    </span>
+                                  </div>
+                                  <span className="text-xs text-slate-500 font-medium block mt-0.5">
+                                    {tx.bankName}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <strong className={`font-bold text-sm ${amountColor}`}>
+                                  -{tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })} €
+                                </strong>
+                                <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                                  {new Date(tx.createdAt).toLocaleDateString()} {new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Always show the core Inbound Transfer filled from creation form */}
+                        <div className="flex items-center justify-between py-2 leading-normal font-sans text-left">
+                          <div className="flex items-center gap-3">
+                            <span className="h-11 w-11 rounded-full bg-[#1D8E3E]/10 text-[#1D8E3E] border border-[#1D8E3E]/25 flex items-center justify-center shrink-0">
+                              <Building size={20} strokeWidth={2} />
+                            </span>
+                            <div>
+                              <h5 className="text-sm font-bold text-slate-900 leading-tight">{t('tx_refund')}</h5>
+                              <span className="text-xs text-slate-500 font-medium block mt-0.5">
+                                {transfer.senderBank || ''}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <strong className="text-[#1D8E3E] font-bold text-base">
+                              +{transfer.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })} €
+                            </strong>
+                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                              {formattedInboundDate}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+
+                  </div>
+                )}
+
+                {/* SUBPAGE 2: CARTE / A KÁRTYÁM VIEW */}
+                {activeTab === 'carte' && (
+                  <div className="space-y-5 animate-fade-in text-left">
+                    
+                    {/* Blue Notification banner */}
+                    {showCardBanner && (
+                      <div className="bg-[#DEEBF7] border border-[#BDD7EE] text-[#1F4E79] p-4 rounded-2xl relative shadow-sm flex items-start gap-2.5 font-sans">
+                        <div className="text-xs leading-relaxed font-semibold pr-6">
+                          {t('card_banner_text')}
+                        </div>
+                        <button 
+                          onClick={() => setShowCardBanner(false)}
+                          className="absolute top-3.5 right-3.5 text-[#1F4E79] hover:text-black p-0.5 rounded-full cursor-pointer transition"
+                        >
+                          <X size={14} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Interactive Debit Card (Deep Blue) */}
+                    <div className="w-full max-w-sm mx-auto aspect-[1.586/1] bg-gradient-to-tr from-[#0D71F9] to-[#0A53B8] text-white rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col justify-between border border-blue-400 font-sans tracking-wide">
+                      <div className="flex justify-between items-start z-10">
+                        <strong className="font-extrabold text-sm tracking-widest text-white">TRANSFERWIRE</strong>
+                        <span className="text-[10px] bg-white/20 border border-white/30 text-white px-2 py-0.5 rounded font-black font-mono">VISA</span>
+                      </div>
+
+                      <div className="z-10 my-1 flex items-center justify-between">
+                        {/* Chip Graphic */}
+                        <div className="w-10 h-7 bg-gradient-to-r from-amber-300 to-yellow-400 rounded-md border border-amber-500 shadow-sm relative overflow-hidden">
+                          <span className="absolute inset-y-0 left-3 w-[1px] bg-slate-800/15" />
+                          <span className="absolute inset-y-0 left-6 w-[1px] bg-slate-800/15" />
+                          <span className="absolute inset-x-0 top-3 h-[1px] bg-slate-800/15" />
+                        </div>
+                      </div>
+
+                      <div className="z-10 text-xl font-mono font-semibold tracking-widest select-all my-2">
+                        4987 **** **** {lastDigits}
+                      </div>
+
+                      <div className="flex justify-between items-end z-10 font-sans">
+                        <div>
+                          <span className="text-[8px] text-blue-100 font-mono tracking-wider block uppercase mb-0.5">{t('card_holder')}</span>
+                          <strong className="text-xs font-bold uppercase text-white block truncate max-w-[170px]">
+                            {transfer.firstName} {transfer.lastName}
+                          </strong>
+                        </div>
+
+                        <div className="text-right text-[10px] text-blue-100 leading-tight">
+                          <span className="font-mono block">{t('card_exp')} : {cardExpiry}</span>
+                          <span className="font-mono block">{t('card_cvv')} : {cardCvv}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Activation controls */}
+                    <div className="flex flex-col gap-2.5 max-w-sm mx-auto pt-2 font-sans font-bold">
+                      <button
+                        onClick={() => {
+                          setAlertMessage(t('card_activated_alert'));
+                          setShowCardBanner(false);
+                        }}
+                        className="w-full bg-[#1D8E3E] hover:bg-[#167231] text-white py-3 rounded-xl text-xs uppercase tracking-wide cursor-pointer text-center transition"
+                      >
+                        {t('card_activate_btn')}
+                      </button>
+                      <button
+                        onClick={() => setAlertMessage(t('card_block_error'))}
+                        className="w-full bg-[#C00000] hover:bg-[#900000] text-white py-3 rounded-xl text-xs uppercase tracking-wide cursor-pointer text-center transition"
+                      >
+                        {t('card_block_btn')}
+                      </button>
+                    </div>
+
+                  </div>
+                )}
+
+                {/* SUBPAGE 3: VIREMENT / ÁTADÁS VIEW */}
+                {activeTab === 'virement' && (
+                  <div className="space-y-4 animate-fade-in text-left">
+                    
+                    {/* Step 1: Transfer Input Form */}
+                    {virementStep === 1 && (
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-left">
+                          <div className="h-9 w-9 rounded bg-[#0D71F9] text-white flex items-center justify-center shrink-0">
+                            <Send size={18} strokeWidth={2.5} className="rotate-45" />
+                          </div>
+                          <h3 className="text-xl font-extrabold text-slate-900 font-sans">
+                            {t('transfer_send_title')}
+                          </h3>
+                        </div>
+
+                        <div className="text-left py-1">
+                          <strong className="text-4xl font-extrabold text-slate-900 tracking-tight block">
+                            {currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} €
+                          </strong>
+                        </div>
+
+                        {virementErrors && (
+                          <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl p-3 text-xs font-bold leading-normal text-left flex items-start gap-2 animate-fade-in">
+                            <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+                            <span>{virementErrors}</span>
+                          </div>
+                        )}
+
+                        <form onSubmit={handleVirementNext} className="space-y-4 text-left font-sans">
+                          <div className="bg-[#EAF2FC] text-[#0D71F9] px-4 py-3 rounded-2xl flex items-center gap-2 font-bold text-xs select-none">
+                            <HelpCircle size={15} strokeWidth={2.5} />
+                            <span>{t('transfer_details')}</span>
+                          </div>
+
+                          {/* Round bordered minimalist inputs with gray placeholders */}
+                          <div className="space-y-3.5">
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="text"
+                                required
+                                value={ibanInput}
+                                onChange={(e) => setIbanInput(e.target.value.toUpperCase())}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450"
+                                placeholder={t('transfer_iban_label')}
+                              />
+                            </div>
+
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="text"
+                                required
+                                value={bicInput}
+                                onChange={(e) => setBicInput(e.target.value.toUpperCase())}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450"
+                                placeholder={t('transfer_bic_label')}
+                              />
+                            </div>
+
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="text"
+                                required
+                                value={bankNameInput}
+                                onChange={(e) => setBankNameInput(e.target.value)}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450"
+                                placeholder={t('transfer_bank_label')}
+                              />
+                            </div>
+
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="text"
+                                required
+                                value={beneficiaryNameInput}
+                                onChange={(e) => setBeneficiaryNameInput(e.target.value)}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450"
+                                placeholder={t('transfer_beneficiary_label')}
+                              />
+                            </div>
+
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="text"
+                                required
+                                value={motifInput}
+                                onChange={(e) => setMotifInput(e.target.value)}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450"
+                                placeholder={t('transfer_motif_label')}
+                              />
+                            </div>
+
+                            <div className="border border-slate-300 rounded-2xl overflow-hidden focus-within:border-[#0D71F9] bg-white transition shadow-sm">
+                              <input
+                                type="number"
+                                required
+                                min="1"
+                                max={currentBalance}
+                                value={virementAmountInput}
+                                onChange={(e) => setVirementAmountInput(e.target.value)}
+                                className="w-full px-5 py-4 text-sm text-slate-800 font-medium focus:outline-none placeholder-slate-450 font-sans"
+                                placeholder={t('transfer_amount_label')}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Yellow warning box */}
+                          <div className="bg-[#FFF9E6] border border-[#FFE082] text-[#855F00] p-4 rounded-2xl flex items-start gap-3 text-xs leading-relaxed font-semibold select-none">
+                            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={16} />
+                            <span>{t('transfer_delay_warn')}</span>
+                          </div>
+
+                          {/* Next submit action */}
+                          <button
+                            type="submit"
+                            className="w-full py-4 bg-[#0D71F9] hover:bg-[#0b5ecf] text-white font-extrabold rounded-2xl text-sm cursor-pointer shadow transition active:scale-95 text-center flex items-center justify-center gap-2 uppercase tracking-wider"
+                          >
+                            {t('transfer_next_btn')}
+                          </button>
+                        </form>
+                      </div>
+                    )}
+
+                    {/* Step 2: Recap & Security Code verification input */}
+                    {virementStep === 2 && (
+                      <div className="space-y-4">
+                        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
+                          <div className="flex items-center justify-between border-b pb-2">
+                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider font-mono">{t('transfer_recap_title')}</h4>
+                            <button 
+                              onClick={() => setVirementStep(1)}
+                              className="text-xs text-[#0D71F9] hover:text-[#0b5ecf] font-bold cursor-pointer font-sans"
+                            >
+                              {t('transfer_modify_btn')} ✎
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-sans">
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-mono block">{t('transfer_amount_label')}</span>
+                              <strong className="text-sm text-slate-900 font-extrabold">{(virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} €</strong>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-mono block">{t('transfer_iban_label')}</span>
+                              <strong className="text-xs font-mono text-slate-800">{ibanInput}</strong>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-mono block">{t('transfer_bank_label')}</span>
+                              <strong className="text-xs text-slate-800 font-bold">{bankNameInput} ({bicInput})</strong>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-mono block">{t('transfer_beneficiary_label')}</span>
+                              <strong className="text-xs text-slate-800 font-bold capitalize">{beneficiaryNameInput}</strong>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 uppercase font-mono block">{t('transfer_motif_label')}</span>
+                              <p className="text-xs text-slate-705 italic font-medium">"{motifInput}"</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <form onSubmit={handleSecurityCodeSubmit} className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
+                          <div className="flex items-center gap-2 border-b pb-3 shrink-0">
+                            <span className="h-7 w-7 rounded-lg bg-blue-50 text-blue-650 flex items-center justify-center"><Key size={14} /></span>
+                            <h4 className="text-sm font-bold text-slate-900 uppercase tracking-wider font-sans">{t('transfer_security_title')}</h4>
+                          </div>
+
+                          {securityCodeError && (
+                            <div className="bg-rose-50 border border-rose-200 text-rose-600 rounded-xl p-3 text-xs font-bold leading-normal text-left">
+                              {securityCodeError}
+                            </div>
+                          )}
+
+                          <p className="text-xs text-slate-650 leading-relaxed font-semibold">
+                            {t('transfer_security_text')}
+                          </p>
+
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-slate-400 block font-mono font-bold uppercase tracking-wider">{t('transfer_security_label')}</label>
+                            <input
+                              type="text"
+                              required
+                              value={securityCodeInput}
+                              onChange={(e) => setSecurityCodeInput(e.target.value.replace(/[^0-9]/g, ''))}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-center text-xl font-bold font-mono tracking-widest text-slate-900 placeholder-slate-350 focus:outline-none focus:border-[#0D71F9] focus:bg-white transition"
+                              placeholder="------"
+                            />
+                          </div>
+
+                          {isOperatorView && (
+                            <div className="bg-indigo-50 border border-indigo-150 p-3.5 rounded-2xl text-[11px] leading-relaxed select-none text-indigo-900 text-left">
+                              💡 <strong>Bemutató Sandbox emlékeztető:</strong>
+                              <ul className="list-disc pl-4 mt-1 space-y-0.5 font-medium">
+                                <li>PIN kód: <strong className="font-mono bg-white px-1 py-0.5 rounded border leading-none">{transfer.codePin}</strong></li>
+                                <li>Szabályozási leállás: <strong className="font-mono bg-white px-1 py-0.5 rounded border leading-none">000000</strong></li>
+                                <li>100%-os sikeres utalás: <strong className="font-mono bg-white px-1 py-0.5 rounded border leading-none">111111</strong></li>
+                              </ul>
+                            </div>
+                          )}
+
+                          <button
+                            type="submit"
+                            className="w-full py-3 bg-[#0D71F9] hover:bg-[#0b5ecf] text-white font-extrabold rounded-xl text-xs uppercase cursor-pointer shadow transition active:scale-95 text-center flex items-center justify-center gap-1.5"
+                          >
+                            {t('transfer_validate_btn')}
+                          </button>
+                        </form>
+                      </div>
+                    )}
+
+                    {/* Step 3: Processing Loader and dynamic progress bar */}
+                    {virementStep === 3 && (
+                      <div className="space-y-4 font-sans text-left">
+                        <div className="bg-slate-200/60 border border-slate-250 p-4 rounded-3xl space-y-3 shadow-inner">
+                          <div className="flex gap-2.5 items-start">
+                            <span className="h-6 w-6 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✓</span>
+                            <div className="text-xs leading-relaxed">
+                              <strong className="block text-slate-900 text-sm">{t('transfer_success_title')}</strong>
+                              <span className="text-slate-650 font-semibold block mt-0.5">
+                                {t('transfer_success_msg')}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="bg-white border rounded-2xl p-4 space-y-2 text-xs text-slate-650 divide-y divide-slate-101 shadow-sm">
+                            <div className="flex justify-between py-1.5">
+                              <span>{t('transfer_beneficiary_label')}:</span>
+                              <strong className="text-slate-900 font-extrabold capitalize">{beneficiaryNameInput}</strong>
+                            </div>
+                            <div className="flex justify-between py-1.5">
+                              <span>{t('transfer_receiving_bank')}:</span>
+                              <strong className="text-slate-950 font-extrabold">{bankNameInput} ({bicInput})</strong>
+                            </div>
+                            <div className="flex justify-between py-1.5">
+                              <span>{t('transfer_amount_label')}:</span>
+                              <strong className="text-[#0D71F9] font-extrabold">{(virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} €</strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 text-center">
+                          <div className="flex items-center justify-between font-bold text-xs text-slate-500 mb-1 select-none">
+                            <span>{currentHungarianProgressLabel}</span>
+                            <span>{progress}%</span>
+                          </div>
+                          
+                          <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden border">
+                            <div 
+                              className="bg-gradient-to-r from-blue-500 to-[#0D71F9] h-full transition-all duration-300"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wider">{t('processing_sec_connection')} • {t('processing_sec_text')}</p>
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                )}
+
+                {/* SUBPAGE 4: MON COMPTE / AZ ÉN FIÓKOM VIEW */}
+                {activeTab === 'compte' && (
+                  <div className="space-y-5 animate-fade-in text-left">
+                    
+                    {/* Support Alert Banner */}
+                    <div className="bg-[#FFF2CC] border border-[#FCE4D6] text-[#C65911] p-4 rounded-2xl relative shadow-sm flex items-start gap-2.5 font-sans">
+                      <div className="text-xs leading-relaxed font-semibold pr-6">
+                        {t('suspended_desc')}
+                      </div>
+                    </div>
+
+                    {/* Section 1: Personal details group */}
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 text-left">
+                      <div className="flex gap-2 items-center border-b pb-3 text-slate-900">
+                        <User size={18} strokeWidth={2.5} className="text-[#0D71F9]" />
+                        <h4 className="text-sm font-bold uppercase tracking-wider font-sans">{t('account_holder')}</h4>
+                      </div>
+                      
+                      <div className="space-y-3 text-xs font-sans">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_holder')}:</span>
+                          <strong className="text-sm text-slate-800 font-extrabold uppercase">{transfer.firstName} {transfer.lastName}</strong>
+                        </div>
+                        
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_email')}:</span>
+                          <strong className="text-xs text-slate-900 font-mono font-bold select-all">{transfer.email}</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_phone')}:</span>
+                          <strong className="text-xs text-slate-800 font-mono font-bold">{transfer.phone}</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_country')}:</span>
+                          <strong className="text-xs text-slate-800 font-bold">{transfer.country}</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_address')}:</span>
+                          <p className="text-xs text-slate-800 font-semibold uppercase">{transfer.address || "---"}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 2: Bank details group */}
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4 text-left">
+                      <div className="flex gap-2 items-center border-b pb-3 text-slate-900">
+                        <Building size={18} strokeWidth={2.5} className="text-[#0D71F9]" />
+                        <h4 className="text-sm font-bold uppercase tracking-wider font-sans">{t('transfer_details')}</h4>
+                      </div>
+                      
+                      <div className="space-y-3 text-xs font-sans">
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('balance_available')}:</span>
+                          <strong className="text-sm text-[#0D71F9] font-extrabold">{currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })} €</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('account_type')}:</span>
+                          <strong className="text-xs text-slate-800 font-bold">{t('account_plan')}</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('nav_compte')}:</span>
+                          <span className="inline-flex items-center gap-1 text-emerald-600 font-bold">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 block animate-pulse" /> {t('tx_success')}
+                          </span>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('nav_virement')}:</span>
+                          <strong className="text-xs text-slate-800 font-bold">SEPA / SWIFT</strong>
+                        </div>
+
+                        <div className="space-y-0.5">
+                          <span className="text-[10px] text-slate-400 font-mono block">{t('transfer_iban_label')}:</span>
+                          <span className="text-rose-600 font-bold block select-all">
+                            ! {t('card_block_error')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Disconnect actions */}
+                    <div className="pt-2">
+                      <button
+                        onClick={() => {
+                          if (firebaseSignOut) {
+                            firebaseSignOut();
+                          } else {
+                            onClose();
+                          }
+                        }}
+                        className="w-full sm:w-auto px-6 py-3 bg-[#C00000] hover:bg-[#900000] text-white font-extrabold text-xs uppercase tracking-wider rounded-xl cursor-pointer text-center flex items-center justify-center gap-2 transition"
+                      >
+                        <span>[→ {t('nav_deconnexion')}</span>
+                      </button>
+                    </div>
+
+                  </div>
+                )}
+
+              </div>
+
+              {/* FLOATING TABS FOOTER NAVIGATION MENU */}
+              <nav className="absolute bottom-5 left-3 right-3 h-16 bg-white border border-slate-200 rounded-2xl shadow-xl flex items-center justify-around font-sans shrink-0 z-20 select-none">
+                <button
+                  onClick={() => setActiveTab('solde')}
+                  className={`relative flex flex-col items-center justify-center flex-1 h-full rounded-l-2xl cursor-pointer ${
+                    activeTab === 'solde' ? 'text-[#0D71F9]' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  <Coins size={18} />
+                  <span className="text-[9px] font-bold block mt-1">{t('nav_solde')}</span>
+                  {activeTab === 'solde' && <span className="absolute bottom-0 left-8 right-8 h-0.5 bg-[#0D71F9] rounded-full" />}
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('carte')}
+                  className={`relative flex flex-col items-center justify-center flex-1 h-full cursor-pointer ${
+                    activeTab === 'carte' ? 'text-[#0D71F9]' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  <CreditCard size={18} />
+                  <span className="text-[9px] font-bold block mt-1">{t('nav_carte')}</span>
+                  {activeTab === 'carte' && <span className="absolute bottom-0 left-8 right-8 h-0.5 bg-[#0D71F9] rounded-full" />}
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('virement')}
+                  className={`relative flex flex-col items-center justify-center flex-1 h-full cursor-pointer ${
+                    activeTab === 'virement' ? 'text-[#0D71F9]' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  <ArrowUpRight size={18} />
+                  <span className="text-[9px] font-bold block mt-1">{t('nav_virement')}</span>
+                  {activeTab === 'virement' && <span className="absolute bottom-0 left-8 right-8 h-0.5 bg-[#0D71F9] rounded-full" />}
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('compte')}
+                  className={`relative flex flex-col items-center justify-center flex-1 h-full rounded-r-2xl cursor-pointer ${
+                    activeTab === 'compte' ? 'text-[#0D71F9]' : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  <User size={18} />
+                  <span className="text-[9px] font-bold block mt-1">{t('nav_compte')}</span>
+                  {activeTab === 'compte' && <span className="absolute bottom-0 left-8 right-8 h-0.5 bg-[#0D71F9] rounded-full" />}
+                </button>
+              </nav>
+
+            </div>
+          )}
+
+        </div>
+
+        {/* ========================================================= */}
+        {/* MODAL 1: REGULATORY BLOCK FAILURE                         */}
+        {/* ========================================================= */}
+        {showFailureModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden border border-slate-300 shadow-2xl animate-scale-up text-left">
+              
+              <div className="bg-red-600 p-6 flex flex-col items-center justify-center text-white relative">
+                <span className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center font-bold text-3xl select-none mb-1 shadow border border-white/20">✖</span>
+                <h3 className="text-lg font-black uppercase font-sans mt-2 tracking-wider text-center">{t('transfer_blocked_title')}</h3>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-4">
+                
+                <div className="bg-slate-50 border rounded-2xl p-4 space-y-2 text-xs text-slate-650 divide-y divide-slate-101">
+                  <div className="flex justify-between py-1 rounded">
+                    <span>{t('transfer_beneficiary_label')}:</span>
+                    <strong className="text-slate-900 capitalize font-extrabold">{beneficiaryNameInput}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 pt-1.5 font-sans">
+                    <span>{t('transfer_bank_label')}:</span>
+                    <strong className="text-slate-900 font-extrabold">{bankNameInput}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 pt-1.5 font-mono">
+                    <span>{t('transfer_iban_label')}:</span>
+                    <strong className="text-indigo-650 tracking-wider font-bold">{ibanInput}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 pt-1.5 font-mono">
+                    <span>{t('transfer_bic_label')}:</span>
+                    <strong className="text-slate-900 font-bold">{bicInput}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 pt-2 font-sans select-all">
+                    <span>{t('transfer_amount_label')}:</span>
+                    <strong className="text-slate-900 text-sm font-black">{(virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} €</strong>
+                  </div>
+                </div>
+
+                <div className="bg-rose-50 border-l-4 border-rose-600 p-3.5 rounded-r-xl flex items-start gap-2 text-rose-910">
+                  <AlertTriangle className="text-rose-650 shrink-0 mt-0.5" size={16} />
+                  <p className="text-xs leading-relaxed font-semibold">
+                    {t('transfer_blocked_msg', { amount: (virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 }), currency: '€', bank: bankNameInput || 'TransferWire' })}
+                  </p>
+                </div>
+
+                <div className="flex justify-end pt-2 border-t">
+                  <button
+                    onClick={() => {
+                      setShowFailureModal(false);
+                    }}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition"
+                  >
+                    {t('transfer_modify_btn')}
+                  </button>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* MODAL 2: SUCCESS INTEGRATION COMPLETED 100%               */}
+        {/* ========================================================= */}
+        {showSuccessModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl overflow-hidden border border-slate-300 shadow-2xl animate-scale-up text-left">
+              
+              <div className="bg-emerald-600 p-6 flex flex-col items-center justify-center text-white text-center">
+                <span className="h-14 w-14 rounded-full bg-white/20 flex items-center justify-center text-3xl font-bold mb-1 shadow border border-white/25">✓</span>
+                <h3 className="text-lg font-black uppercase font-sans mt-2 tracking-wider">{t('transfer_success_title')}</h3>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-4">
+                <div className="bg-emerald-50 border border-emerald-150 p-3.5 rounded-2xl text-emerald-800 text-xs leading-relaxed font-semibold">
+                  {t('transfer_success_msg_completed', { amount: (virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 }), currency: '€' })}
+                </div>
+
+                <div className="bg-slate-50 border rounded-2xl p-4 space-y-2 text-xs text-slate-650 divide-y divide-slate-100 font-sans shadow-sm">
+                  <div className="flex justify-between py-1">
+                    <span>{t('transfer_beneficiary_label')}:</span>
+                    <strong className="text-slate-900 uppercase font-black">{beneficiaryNameInput}</strong>
+                  </div>
+                  <div className="flex justify-between py-1 pt-1.5 font-mono">
+                    <span>{t('transfer_iban_label')}:</span>
+                    <strong className="text-indigo-600 font-bold">{ibanInput}</strong>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => {
+                      resetVirementWizard();
+                      setActiveTab('solde');
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition"
+                  >
+                    {t('nav_solde')}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* MODAL 3: INLINE CUSTOM MODAL ALERT                       */}
+        {/* ========================================================= */}
+        {alertMessage && (
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[70] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-2xl animate-scale-up text-left overflow-hidden">
+              <div className="bg-slate-50 border-b border-slate-100 p-4 font-sans font-black text-slate-800 text-[10px] uppercase tracking-wider flex items-center gap-2">
+                <ShieldAlert size={14} className="text-blue-600" /> Értesítés
+              </div>
+              <div className="p-5 font-sans space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed font-semibold">
+                  {alertMessage}
+                </p>
+                <div className="flex justify-end pt-1">
+                  <button
+                    onClick={() => setAlertMessage(null)}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-black text-[10px] uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition"
+                  >
+                    OK
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-sans text-slate-800">

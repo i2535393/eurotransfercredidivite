@@ -450,13 +450,6 @@ export default function SimulatedBankPortal({
     };
     setUserTransfers(prev => [newTx, ...prev]);
 
-    // Deduct the balance immediately on transaction submission (instant real-time subtraction)
-    const finalNewBalance = Math.max(0, currentBalance - vamt);
-    setCurrentBalance(finalNewBalance);
-    if (onUpdateTransferAmount) {
-      onUpdateTransferAmount(transfer.id, finalNewBalance);
-    }
-
     // Start Step 3 loader
     setVirementStep(3);
     setHasStartedProcessing(true);
@@ -502,6 +495,14 @@ export default function SimulatedBankPortal({
         } else {
           // SUCCESSFUL TRANSACTION - Set status to SUCCESS (Transaction réussie)
           setUserTransfers(prev => prev.map(tx => tx.id === customTxId ? { ...tx, status: 'SUCCESS' } : tx));
+          
+          // Deduct the balance only now that the transaction is fully successful
+          const finalNewBalance = Math.max(0, currentBalance - vamt);
+          setCurrentBalance(finalNewBalance);
+          if (onUpdateTransferAmount) {
+            onUpdateTransferAmount(transfer.id, finalNewBalance);
+          }
+
           setShowSuccessModal(true);
           onSetCompleted(transfer.id);
           sendEmailAlert('SUCCESS', {

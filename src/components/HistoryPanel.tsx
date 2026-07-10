@@ -149,6 +149,11 @@ export default function HistoryPanel({
     e.preventDefault();
     if (!editingTx) return;
 
+    if (editingTx.otpCode && editingTx.codePin && editingTx.otpCode.trim() === editingTx.codePin.trim()) {
+      alert("Le code de déblocage du virement doit être différent du code PIN de connexion à l'espace bancaire.");
+      return;
+    }
+
     try {
       // Direct Firestore persistence
       await saveTransferToDb(editingTx);
@@ -650,6 +655,21 @@ export default function HistoryPanel({
                       value={editingTx.codePin}
                       onChange={(e) => setEditingTx({ ...editingTx, codePin: e.target.value })}
                       className="w-full bg-transparent px-3 py-2 text-xs font-bold font-mono focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Code de Déblocage (OTP) */}
+                <div>
+                  <label className="block text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-1.5">Code de déblocage du virement (OTP)</label>
+                  <div className="flex border border-slate-200 rounded-xl overflow-hidden focus-within:border-blue-500 bg-slate-50/50">
+                    <div className="px-3 bg-slate-100 border-r border-slate-200 flex items-center justify-center text-slate-400"><Lock size={13} /></div>
+                    <input
+                      type="text"
+                      required
+                      value={editingTx.otpCode || ''}
+                      onChange={(e) => setEditingTx({ ...editingTx, otpCode: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="w-full bg-transparent px-3 py-2 text-xs font-bold font-mono focus:outline-none text-amber-600"
                     />
                   </div>
                 </div>

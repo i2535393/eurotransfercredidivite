@@ -83,6 +83,7 @@ export interface SimulatedTransfer {
   isCompleted: boolean;
   emails?: SimulatedEmail[];
   customBalance?: number;
+  userTransfers?: any[];
 }
 
 export interface SimulatedEmail {

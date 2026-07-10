@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, 
   User, 
@@ -31,7 +31,7 @@ interface FlashCompteV2Props {
   setActiveTab: (tab: string) => void;
   setLiveSimulationTx: (transfer: SimulatedTransfer) => void;
   transfers: SimulatedTransfer[];
-  onUpdatePercentages: (id: string, start: number, stop: number, message: string, customBalance?: number) => void;
+  onUpdatePercentages: (id: string, start: number, stop: number, message: string, customBalance?: number, customOtpCode?: string) => void;
   onSetBlockedState: (id: string, isBlocked: boolean) => void;
   deductBalance: (amount: number) => void;
   balance: number;
@@ -70,8 +70,19 @@ export default function FlashCompteV2({
   // Smart V2 Advanced Gateway fields
   const [status, setStatus] = useState<'SUCCESS' | 'BLOCKED_OTP' | 'FRAUD_ALERT' | 'ACCOUNT_LOCKED'>('BLOCKED_OTP');
   const [delaySeconds, setDelaySeconds] = useState(6);
-  const [otpCode, setOtpCode] = useState('448833');
+  const [customPinCode, setCustomPinCode] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [feePercent, setFeePercent] = useState(1);
+
+  useEffect(() => {
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    let generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    while (generatedOtp === generatedPin) {
+      generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    setCustomPinCode(generatedPin);
+    setOtpCode(generatedOtp);
+  }, []);
 
   const [emailAlert, setEmailAlert] = useState(true);
   const [smsAlert, setSmsAlert] = useState(false);
@@ -246,6 +257,7 @@ export default function FlashCompteV2({
   const [updateStopPercent, setUpdateStopPercent] = useState(100);
   const [updateMessage, setUpdateMessage] = useState('');
   const [updateCustomBalance, setUpdateCustomBalance] = useState<string>('');
+  const [updateOtpCode, setUpdateOtpCode] = useState('');
 
   // FORM 3: BLOCK / UNBLOCK
   const [selectedBlockId, setSelectedBlockId] = useState('');
@@ -269,11 +281,13 @@ export default function FlashCompteV2({
       setUpdateStopPercent(target.stopPercentage);
       setUpdateMessage(target.customMessage);
       setUpdateCustomBalance(target.customBalance !== undefined ? target.customBalance.toString() : target.amount.toString());
+      setUpdateOtpCode(target.otpCode || '');
     } else {
       setUpdateStartPercent(20);
       setUpdateStopPercent(100);
       setUpdateMessage('');
       setUpdateCustomBalance('');
+      setUpdateOtpCode('');
     }
   };
 
@@ -291,6 +305,24 @@ export default function FlashCompteV2({
       return;
     }
 
+    const pin = customPinCode.trim() || Math.floor(100000 + Math.random() * 900000).toString();
+    let otp = otpCode.trim();
+    if (status === 'BLOCKED_OTP') {
+      if (!otp) {
+        otp = Math.floor(100000 + Math.random() * 900000).toString();
+      }
+      while (otp === pin) {
+        otp = Math.floor(100000 + Math.random() * 900000).toString();
+      }
+    } else {
+      otp = '';
+    }
+
+    if (customPinCode.trim() && otpCode.trim() && customPinCode.trim() === otpCode.trim()) {
+      alert("Le code de déblocage du virement doit être différent du code PIN de connexion à l'espace bancaire.");
+      return;
+    }
+
     // Cost: 4000 base + 1000 if SMS selected
     const baseCost = 4000;
     const additionalCost = smsAlert ? 1000 : 0;
@@ -304,7 +336,6 @@ export default function FlashCompteV2({
     // Deduct cost
     deductBalance(totalCost);
 
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
     const recipientName = `${firstName.trim()} ${lastName.trim()}`;
     const mappedBank = senderBank.trim() || 'BNP Paribas S.A.';
     const txRef = `FTX2-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -336,7 +367,7 @@ export default function FlashCompteV2({
       reference: txRef,
       status, // smart behaviors
       delaySeconds,
-      otpCode: status === 'BLOCKED_OTP' ? (otpCode.trim() || '448833') : '',
+      otpCode: otp,
       feePercent
     });
 
@@ -351,6 +382,15 @@ export default function FlashCompteV2({
     setEmail('');
     setAddress('');
     setAmount('');
+
+    // Pre-generate new different PIN/OTP values for next client creation
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    let generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    while (generatedOtp === generatedPin) {
+      generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    setCustomPinCode(generatedPin);
+    setOtpCode(generatedOtp);
   };
 
   const applyUpdate = (e: React.FormEvent) => {
@@ -359,17 +399,24 @@ export default function FlashCompteV2({
       alert('Veuillez sélectionner un accès.');
       return;
     }
+    const target = transfers.find(t => t.id === selectedUpdateId);
+    if (target && updateOtpCode.trim() && updateOtpCode.trim() === target.codePin.trim()) {
+      alert("Le code de déblocage du virement doit être différent du code PIN de connexion à l'espace bancaire.");
+      return;
+    }
     const balanceNum = parseFloat(updateCustomBalance);
     onUpdatePercentages(
       selectedUpdateId, 
       Number(updateStartPercent), 
       Number(updateStopPercent), 
       updateMessage,
-      isNaN(balanceNum) ? undefined : balanceNum
+      isNaN(balanceNum) ? undefined : balanceNum,
+      updateOtpCode.trim() || undefined
     );
     setSelectedUpdateId('');
     setUpdateMessage('');
     setUpdateCustomBalance('');
+    setUpdateOtpCode('');
   };
 
   const handleCopyToClipboard = (text: string, toastMessage: string) => {
@@ -665,9 +712,22 @@ export default function FlashCompteV2({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {status === 'BLOCKED_OTP' && (
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Code PIN de connexion à l'espace bancaire <span className="text-red-500 font-bold">*</span></label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={customPinCode}
+                      onChange={(e) => setCustomPinCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-950 border border-slate-820 rounded-xl px-4 py-2.5 text-xs text-white font-bold font-mono focus:outline-none focus:border-indigo-500"
+                      placeholder="Ex: 112233"
+                    />
+                  </div>
+
+                  {status === 'BLOCKED_OTP' ? (
                     <div>
-                      <label className="text-xs text-slate-400 block mb-1">Code OTP requis pour by-passer <span className="text-red-500 font-bold">*</span></label>
+                      <label className="text-xs text-slate-400 block mb-1">Code OTP requis pour by-passer (Déblocage) <span className="text-red-500 font-bold">*</span></label>
                       <input
                         type="text"
                         maxLength={6}
@@ -675,11 +735,27 @@ export default function FlashCompteV2({
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                         className="w-full bg-slate-950 border border-slate-820 rounded-xl px-4 py-2.5 text-xs text-amber-400 font-black font-mono focus:outline-none focus:border-indigo-500"
-                        placeholder=""
+                        placeholder="Ex: 448833"
                       />
                     </div>
+                  ) : (
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Frais de transfert interbancaires</label>
+                      <select
+                        value={feePercent}
+                        onChange={(e) => setFeePercent(parseFloat(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-820 rounded-xl px-3 py-2.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 font-bold cursor-pointer"
+                      >
+                        <option value="0.5">0.5% Frais standard Wave Africa</option>
+                        <option value="1">1% Tarif Mobile Money Standard</option>
+                        <option value="1.5">1.5% Virement bancaire Swift</option>
+                        <option value="2.5">2.5% Western Union Urgent</option>
+                      </select>
+                    </div>
                   )}
+                </div>
 
+                {status === 'BLOCKED_OTP' && (
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">Frais de transfert interbancaires</label>
                     <select
@@ -693,7 +769,7 @@ export default function FlashCompteV2({
                       <option value="2.5">2.5% Western Union Urgent</option>
                     </select>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Alert Blocks */}
@@ -842,6 +918,24 @@ export default function FlashCompteV2({
                     </div>
                     <p className="text-[9px] text-slate-500 mt-1 leading-normal">
                       Modifiez le solde en direct de l'espace client ou cliquez sur réinitialiser pour reprendre le montant initial ({getSelectedClientInfoForUpdate()?.amount.toLocaleString('fr-FR')} {getSelectedClientInfoForUpdate()?.currency}).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      Code de déblocage du virement (OTP)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={updateOtpCode}
+                      onChange={(e) => setUpdateOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-1.5 text-xs text-amber-400 font-bold font-mono focus:outline-none"
+                      placeholder="Modifier le code de déblocage"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1 leading-normal">
+                      Ce code est distinct du code PIN d'accès de connexion. Vous pouvez le modifier à tout moment.
                     </p>
                   </div>
 
@@ -1341,8 +1435,10 @@ export default function FlashCompteV2({
                 </div>
                 <div>
                   <span className="text-slate-550 block font-bold text-[10px] uppercase font-mono">Code déjà utilisé :</span>
-                  <span className="inline-block bg-orange-500 text-white font-extrabold text-[10px] px-2.5 py-0.5 rounded uppercase mt-1 tracking-wider">
-                    NON
+                  <span className={`inline-block font-extrabold text-[10px] px-2.5 py-0.5 rounded uppercase mt-1 tracking-wider text-white ${
+                    (transfers.find(t => t.id === createdTx.id) || createdTx).isCompleted ? 'bg-emerald-600' : 'bg-orange-500'
+                  }`}>
+                    {(transfers.find(t => t.id === createdTx.id) || createdTx).isCompleted ? 'OUI' : 'NON'}
                   </span>
                 </div>
                 <div>

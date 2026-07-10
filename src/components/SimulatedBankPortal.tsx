@@ -35,6 +35,7 @@ interface SimulatedBankPortalProps {
   onSetCompleted: (id: string) => void;
   onTriggerEmailNotification?: (title: string, content: string, status: 'Envoyé' | 'En attente' | 'Échoué') => void;
   onUpdateTransferAmount?: (id: string, newAmount: number) => void;
+  onUpdateTransferPortalState?: (id: string, newBalance: number, updatedUserTransfers: any[]) => void;
   isFirebaseAuthed?: boolean;
   firebaseSignOut?: () => void;
   isOperatorView?: boolean;
@@ -46,6 +47,7 @@ export default function SimulatedBankPortal({
   onSetCompleted, 
   onTriggerEmailNotification,
   onUpdateTransferAmount,
+  onUpdateTransferPortalState,
   isFirebaseAuthed = false,
   firebaseSignOut,
   isOperatorView = false
@@ -67,7 +69,7 @@ export default function SimulatedBankPortal({
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
 
   // Dynamic status-aware transfers logged locally for the dashboard history
-  const [userTransfers, setUserTransfers] = useState<any[]>([]);
+  const [userTransfers, setUserTransfers] = useState<any[]>(transfer.userTransfers || []);
 
   // FORM INPUTS
   const [inputEmail, setInputEmail] = useState(transfer.email);
@@ -126,6 +128,12 @@ export default function SimulatedBankPortal({
       transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount
     );
   }, [transfer.customBalance, transfer.amount]);
+
+  useEffect(() => {
+    if (transfer.userTransfers) {
+      setUserTransfers(transfer.userTransfers);
+    }
+  }, [transfer.userTransfers]);
 
   useEffect(() => {
     setProgressLabel(t('processing_sec_connection'));
@@ -448,7 +456,12 @@ export default function SimulatedBankPortal({
       status: 'PENDING', // Will render "Transaction en attente de validation"
       createdAt: Date.now()
     };
-    setUserTransfers(prev => [newTx, ...prev]);
+    
+    const updatedHistory = [newTx, ...userTransfers];
+    setUserTransfers(updatedHistory);
+    if (onUpdateTransferPortalState) {
+      onUpdateTransferPortalState(transfer.id, currentBalance, updatedHistory);
+    }
 
     // Start Step 3 loader
     setVirementStep(3);
@@ -484,7 +497,11 @@ export default function SimulatedBankPortal({
 
         if (parsedTargetStop < 100) {
           // INTERMEDIATE STOP MODAL TRIGGER - Set status to FAILED (Transaction échouée)
-          setUserTransfers(prev => prev.map(tx => tx.id === customTxId ? { ...tx, status: 'FAILED' } : tx));
+          const failedHistory = updatedHistory.map(tx => tx.id === customTxId ? { ...tx, status: 'FAILED' } : tx);
+          setUserTransfers(failedHistory);
+          if (onUpdateTransferPortalState) {
+            onUpdateTransferPortalState(transfer.id, currentBalance, failedHistory);
+          }
           setShowFailureModal(true);
           sendEmailAlert('FAILURE', {
             beneficiaryName: beneficiaryNameInput,
@@ -494,12 +511,15 @@ export default function SimulatedBankPortal({
           });
         } else {
           // SUCCESSFUL TRANSACTION - Set status to SUCCESS (Transaction réussie)
-          setUserTransfers(prev => prev.map(tx => tx.id === customTxId ? { ...tx, status: 'SUCCESS' } : tx));
+          const successHistory = updatedHistory.map(tx => tx.id === customTxId ? { ...tx, status: 'SUCCESS' } : tx);
+          setUserTransfers(successHistory);
           
           // Deduct the balance only now that the transaction is fully successful
           const finalNewBalance = Math.max(0, currentBalance - vamt);
           setCurrentBalance(finalNewBalance);
-          if (onUpdateTransferAmount) {
+          if (onUpdateTransferPortalState) {
+            onUpdateTransferPortalState(transfer.id, finalNewBalance, successHistory);
+          } else if (onUpdateTransferAmount) {
             onUpdateTransferAmount(transfer.id, finalNewBalance);
           }
 

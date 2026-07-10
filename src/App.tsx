@@ -688,14 +688,26 @@ export default function App() {
 
   const onUpdateTransferAmount = (id: string, newAmount: number) => {
     setTransfers(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, amount: newAmount, customBalance: newAmount } : t);
+      const updated = prev.map(t => t.id === id ? { ...t, customBalance: newAmount } : t);
       const found = updated.find(t => t.id === id);
       if (found) {
         saveTransferToDb(found);
       }
       return updated;
     });
-    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, amount: newAmount, customBalance: newAmount } : prev);
+    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newAmount } : prev);
+  };
+
+  const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[]) => {
+    setTransfers(prev => {
+      const updated = prev.map(t => t.id === id ? { ...t, customBalance: newBalance, userTransfers: updatedUserTransfers } : t);
+      const found = updated.find(t => t.id === id);
+      if (found) {
+        saveTransferToDb(found);
+      }
+      return updated;
+    });
+    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newBalance, userTransfers: updatedUserTransfers } : prev);
   };
 
   const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number) => {
@@ -851,6 +863,7 @@ export default function App() {
         onSetCompleted={onSetCompleted}
         onTriggerEmailNotification={onTriggerEmailNotification}
         onUpdateTransferAmount={onUpdateTransferAmount}
+        onUpdateTransferPortalState={onUpdateTransferPortalState}
         isFirebaseAuthed={currentUser !== null && userRole === 'client'}
         firebaseSignOut={handleLogout}
         isOperatorView={false}
@@ -1103,6 +1116,7 @@ export default function App() {
           onSetCompleted={onSetCompleted}
           onTriggerEmailNotification={onTriggerEmailNotification}
           onUpdateTransferAmount={onUpdateTransferAmount}
+          onUpdateTransferPortalState={onUpdateTransferPortalState}
           isFirebaseAuthed={currentUser !== null && userRole === 'client'}
           firebaseSignOut={handleLogout}
           isOperatorView={true}

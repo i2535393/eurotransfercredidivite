@@ -698,16 +698,34 @@ export default function App() {
     setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newAmount } : prev);
   };
 
-  const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[]) => {
+  const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => {
     setTransfers(prev => {
-      const updated = prev.map(t => t.id === id ? { ...t, customBalance: newBalance, userTransfers: updatedUserTransfers } : t);
+      const updated = prev.map(t => {
+        if (t.id === id) {
+          const u: SimulatedTransfer = { ...t, customBalance: newBalance, userTransfers: updatedUserTransfers };
+          if (isCompleted !== undefined) {
+            u.isCompleted = isCompleted;
+          }
+          return u;
+        }
+        return t;
+      });
       const found = updated.find(t => t.id === id);
       if (found) {
         saveTransferToDb(found);
       }
       return updated;
     });
-    setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newBalance, userTransfers: updatedUserTransfers } : prev);
+    setLiveSimulationTx(prev => {
+      if (prev && prev.id === id) {
+        const u = { ...prev, customBalance: newBalance, userTransfers: updatedUserTransfers };
+        if (isCompleted !== undefined) {
+          u.isCompleted = isCompleted;
+        }
+        return u;
+      }
+      return prev;
+    });
   };
 
   const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number) => {

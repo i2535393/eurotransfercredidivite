@@ -443,9 +443,6 @@ export default function SimulatedBankPortal({
     } else if (entry === '111111') {
       // FORCE 100% EXCELLENT WIRE INTEGRATION
       targetStop = 100;
-    } else if (correctOtp && entry === correctOtp) {
-      // Right code de déblocage unlocks the regulatory blockage and goes up to 100%!
-      targetStop = 100;
     }
 
     setParsedTargetStop(targetStop);
@@ -1169,7 +1166,7 @@ export default function SimulatedBankPortal({
                             <div className="flex gap-2.5 items-start">
                               <span className="h-6 w-6 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">✖</span>
                               <div className="text-xs leading-relaxed">
-                                <strong className="block text-rose-950 text-sm">Acheminement suspendu</strong>
+                                <strong className="block text-rose-950 text-sm">Échec du virement</strong>
                                 <span className="text-rose-700 font-semibold block mt-0.5">
                                   {transfer.customMessage || "Echec du transfert un problème est survenu, veuillez contacter l'expéditeur ou le support transferwire. Cordialement"}
                                 </span>
@@ -2010,12 +2007,12 @@ export default function SimulatedBankPortal({
 
                             if (tx.status === 'SUCCESS') {
                               statusColor = "bg-emerald-50 text-emerald-850 border-emerald-200";
-                              statusText = "transaction réussie";
+                              statusText = "virement réussi";
                               amountColor = "text-rose-700";
                               iconBg = "bg-rose-50 text-rose-600 border border-rose-100";
                             } else if (tx.status === 'FAILED') {
                               statusColor = "bg-rose-50 text-rose-850 border-rose-200";
-                              statusText = "transaction échouée";
+                              statusText = "transfert échoué";
                               amountColor = "text-slate-400 line-through";
                               iconBg = "bg-slate-50 text-slate-450 border border-slate-200";
                             }

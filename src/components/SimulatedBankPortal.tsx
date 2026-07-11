@@ -422,7 +422,7 @@ export default function SimulatedBankPortal({
     // Must match either transfer's specific otpCode, its codePin, or standard defaults
     const isCorrect = isOverride || 
                      (correctOtp && entry === correctOtp) || 
-                     (!correctOtp && correctPin && entry === correctPin) ||
+                     (correctPin && entry === correctPin) ||
                      (entry === '448833');
 
     if (!isCorrect) {
@@ -431,7 +431,10 @@ export default function SimulatedBankPortal({
     }
 
     // Determine testing scenario choice based on user's manual entry
-    const baseStop = Number(transfer.stopPercentage) || 100;
+    const rawStop = transfer.stopPercentage;
+    const baseStop = typeof rawStop === 'number' 
+      ? rawStop 
+      : parseInt(String(rawStop).replace(/[^0-9]/g, ''), 10) || 100;
     let targetStop = baseStop;
 
     if (entry === '000000') {
@@ -509,7 +512,7 @@ export default function SimulatedBankPortal({
           setUserTransfers(failedHistory);
           localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(failedHistory));
           if (onUpdateTransferPortalState) {
-            onUpdateTransferPortalState(transfer.id, currentBalance, failedHistory);
+            onUpdateTransferPortalState(transfer.id, currentBalance, failedHistory, false);
           }
           setShowFailureModal(true);
           sendEmailAlert('FAILURE', {

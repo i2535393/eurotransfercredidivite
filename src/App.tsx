@@ -45,7 +45,7 @@ import {
   db,
   auth
 } from './lib/firebase';
-import { onSnapshot, collection, doc, getDoc } from 'firebase/firestore';
+import { onSnapshot, collection, doc, getDoc, runTransaction } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const getPublicOrigin = () => {
@@ -534,8 +534,25 @@ export default function App() {
   useEffect(() => {
     if (liveSimulationTx) {
       const updated = transfers.find(t => t.id === liveSimulationTx.id);
-      if (updated && JSON.stringify(updated) !== JSON.stringify(liveSimulationTx)) {
-        setLiveSimulationTx(updated);
+      if (updated) {
+        // Prevent race conditions where stale snapshot data overwrites newer local state
+        const localHistoryLength = liveSimulationTx.userTransfers?.length || 0;
+        const incomingHistoryLength = updated.userTransfers?.length || 0;
+        
+        const localBalance = liveSimulationTx.customBalance;
+        const incomingBalance = updated.customBalance;
+        
+        // If the incoming snapshot is older/stale (fewer transfers or missing customBalance when we have one), skip updating
+        if (localHistoryLength > incomingHistoryLength) {
+          return;
+        }
+        if (localBalance !== undefined && incomingBalance === undefined) {
+          return;
+        }
+        
+        if (JSON.stringify(updated) !== JSON.stringify(liveSimulationTx)) {
+          setLiveSimulationTx(updated);
+        }
       }
     }
   }, [transfers, liveSimulationTx]);
@@ -699,13 +716,115 @@ export default function App() {
     setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newAmount } : prev);
   };
 
+  const deductClientBalanceIfSuccessful = async (
+    id: string,
+    newBalance: number,
+    updatedUserTransfers: any[],
+    isCompleted?: boolean
+  ) => {
+    try {
+      const transferDocRef = doc(db, 'transfers', id);
+
+      await runTransaction(db, async (transaction) => {
+        const transferSnap = await transaction.get(transferDocRef);
+
+        if (!transferSnap.exists()) {
+          // If the transfer does not exist in Firestore yet, initialize it
+          const target = transfers.find(t => t.id === id) || liveSimulationTx;
+          if (target) {
+            const cleanData: any = {};
+            const hasSuccess = isCompleted === true;
+            const newTx = updatedUserTransfers[0];
+            const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
+            const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
+            const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+
+            const fullObj = { ...target, customBalance: finalBalance, userTransfers: updatedUserTransfers };
+            if (isCompleted !== undefined) {
+              fullObj.isCompleted = isCompleted;
+            }
+            Object.keys(fullObj).forEach((key) => {
+              const val = (fullObj as any)[key];
+              if (val !== undefined) {
+                cleanData[key] = val;
+              }
+            });
+            transaction.set(transferDocRef, cleanData);
+          }
+          return;
+        }
+
+        const currentData = transferSnap.data();
+
+        // 1. Determine if this update represents a newly completed successful transfer
+        const hasSuccess = isCompleted === true;
+
+        // 2. Determine the persistent balance to store in Firestore
+        let persistentBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
+
+        if (hasSuccess) {
+          // Find the newly added successful transaction (first element in history)
+          const newTx = updatedUserTransfers[0];
+          const txAmount = newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
+
+          // Perform subtraction atomically using the database balance
+          const initialBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
+          persistentBalance = Math.max(0, initialBalance - txAmount);
+          console.log(`[Atomic Firestore Deduct] Virement successful! Subtracting newly added tx amount ${txAmount}. New persistent balance: ${persistentBalance}`);
+        } else {
+          // If the status is FAILED or PENDING, absolutely NO subtraction should happen. We preserve the current balance.
+          console.log(`[Atomic Firestore Deduct] Virement is NOT SUCCESS ('FAILED' or 'PENDING'). Balance remains untouched: ${persistentBalance}`);
+        }
+
+        // 3. Atomically update the database document with new state and history
+        const cleanData: any = {};
+        const fullUpdates = {
+          userTransfers: updatedUserTransfers,
+          customBalance: persistentBalance,
+          ...(isCompleted !== undefined ? { isCompleted } : {})
+        };
+        Object.keys(fullUpdates).forEach((key) => {
+          const val = (fullUpdates as any)[key];
+          if (val !== undefined) {
+            cleanData[key] = val;
+          }
+        });
+
+        transaction.update(transferDocRef, cleanData);
+      });
+    } catch (error) {
+      console.error("Critical error during atomic client balance deduction:", error);
+      // Fallback: save to DB using standard routine if transaction fails
+      const target = transfers.find(t => t.id === id) || liveSimulationTx;
+      if (target) {
+        const hasSuccess = isCompleted === true;
+        const newTx = updatedUserTransfers[0];
+        const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
+        const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
+        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+        const u = { ...target, customBalance: finalBalance, userTransfers: updatedUserTransfers };
+        if (isCompleted !== undefined) {
+          u.isCompleted = isCompleted;
+        }
+        await saveTransferToDb(u);
+      }
+    }
+  };
+
   const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => {
+    // Keep local state perfectly matched to the atomic calculations
+    const hasSuccess = isCompleted === true;
+    const newTx = updatedUserTransfers[0];
+    const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
+
     setTransfers(prev => {
       let isFound = false;
       const updated = prev.map(t => {
         if (t.id === id) {
           isFound = true;
-          const u: SimulatedTransfer = { ...t, customBalance: newBalance, userTransfers: updatedUserTransfers };
+          const initialBalance = t.customBalance !== undefined ? t.customBalance : t.amount;
+          const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+          const u: SimulatedTransfer = { ...t, customBalance: finalBalance, userTransfers: updatedUserTransfers };
           if (isCompleted !== undefined) {
             u.isCompleted = isCompleted;
           }
@@ -716,24 +835,23 @@ export default function App() {
 
       // If it's not found in our transfers state, let's create a new entry from liveSimulationTx
       if (!isFound && liveSimulationTx && liveSimulationTx.id === id) {
-        const u: SimulatedTransfer = { ...liveSimulationTx, customBalance: newBalance, userTransfers: updatedUserTransfers };
+        const initialBalance = liveSimulationTx.customBalance !== undefined ? liveSimulationTx.customBalance : liveSimulationTx.amount;
+        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+        const u: SimulatedTransfer = { ...liveSimulationTx, customBalance: finalBalance, userTransfers: updatedUserTransfers };
         if (isCompleted !== undefined) {
           u.isCompleted = isCompleted;
         }
-        saveTransferToDb(u);
         return [u, ...updated];
       }
 
-      const found = updated.find(t => t.id === id);
-      if (found) {
-        saveTransferToDb(found);
-      }
       return updated;
     });
 
     setLiveSimulationTx(prev => {
       if (prev && prev.id === id) {
-        const u = { ...prev, customBalance: newBalance, userTransfers: updatedUserTransfers };
+        const initialBalance = prev.customBalance !== undefined ? prev.customBalance : prev.amount;
+        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+        const u = { ...prev, customBalance: finalBalance, userTransfers: updatedUserTransfers };
         if (isCompleted !== undefined) {
           u.isCompleted = isCompleted;
         }
@@ -741,6 +859,9 @@ export default function App() {
       }
       return prev;
     });
+
+    // Run the async atomic utility to safely update/deduct in Firestore only if successful
+    deductClientBalanceIfSuccessful(id, newBalance, updatedUserTransfers, isCompleted);
   };
 
   const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number, customOtpCode?: string) => {

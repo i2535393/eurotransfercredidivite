@@ -443,6 +443,9 @@ export default function SimulatedBankPortal({
     } else if (entry === '111111') {
       // FORCE 100% EXCELLENT WIRE INTEGRATION
       targetStop = 100;
+    } else if (correctOtp && entry === correctOtp) {
+      // The code de déblocage allows the transfer to run to 100% and succeed completely!
+      targetStop = 100;
     }
 
     setParsedTargetStop(targetStop);

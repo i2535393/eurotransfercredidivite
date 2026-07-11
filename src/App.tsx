@@ -224,9 +224,15 @@ export default function App() {
           setUserRole('client');
         }
       } else {
-        setUserRole(null);
-        localStorage.removeItem('user_role');
-        setLiveSimulationTx(null);
+        const guestTxId = sessionStorage.getItem('client_session_txid');
+        if (guestTxId) {
+          setUserRole('client');
+          localStorage.setItem('user_role', 'client');
+        } else {
+          setUserRole(null);
+          localStorage.removeItem('user_role');
+          setLiveSimulationTx(null);
+        }
       }
       setAuthLoading(false);
     });
@@ -519,6 +525,18 @@ export default function App() {
               setLiveSimulationTx(null);
             }
           }
+        } else {
+          // No URL parameters but maybe we have an active guest/beneficiary session in sessionStorage!
+          const savedGuestTxId = sessionStorage.getItem('client_session_txid');
+          if (savedGuestTxId) {
+            let match = await findTransferByAnyField(savedGuestTxId) || await getTransferByIdFromDb(savedGuestTxId);
+            if (!match) {
+              match = transfers.find(t => t.id === savedGuestTxId);
+            }
+            if (match) {
+              setLiveSimulationTx(match);
+            }
+          }
         }
       } catch (err) {
         console.error("Error resolving direct client parameters:", err);
@@ -716,9 +734,8 @@ export default function App() {
     setLiveSimulationTx(prev => prev && prev.id === id ? { ...prev, customBalance: newAmount } : prev);
   };
 
-  const deductClientBalanceIfSuccessful = async (
+  const verifyAndAtomicallyDeductBalance = async (
     id: string,
-    newBalance: number,
     updatedUserTransfers: any[],
     isCompleted?: boolean
   ) => {
@@ -728,21 +745,57 @@ export default function App() {
       await runTransaction(db, async (transaction) => {
         const transferSnap = await transaction.get(transferDocRef);
 
-        if (!transferSnap.exists()) {
-          // If the transfer does not exist in Firestore yet, initialize it
+        let stopPercentVal = 100;
+        let persistentBalance = 0;
+        let currentIsCompleted = false;
+
+        if (transferSnap.exists()) {
+          const currentData = transferSnap.data();
+          stopPercentVal = currentData.stopPercentage !== undefined ? Number(currentData.stopPercentage) : 100;
+          persistentBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
+          currentIsCompleted = currentData.isCompleted === true;
+        } else {
           const target = transfers.find(t => t.id === id) || liveSimulationTx;
           if (target) {
-            const cleanData: any = {};
-            const hasSuccess = isCompleted === true;
-            const newTx = updatedUserTransfers[0];
-            const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
-            const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
-            const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
+            stopPercentVal = target.stopPercentage !== undefined ? Number(target.stopPercentage) : 100;
+            persistentBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
+            currentIsCompleted = target.isCompleted === true;
+          }
+        }
 
-            const fullObj = { ...target, customBalance: finalBalance, userTransfers: updatedUserTransfers };
-            if (isCompleted !== undefined) {
-              fullObj.isCompleted = isCompleted;
-            }
+        // If the transfer completes successfully, force its stopPercentage to 100% in Firestore
+        if (isCompleted === true) {
+          stopPercentVal = 100;
+          currentIsCompleted = true;
+        }
+
+        const isAt100Percent = stopPercentVal === 100;
+        const latestTx = updatedUserTransfers && updatedUserTransfers[0];
+        const isTxSuccessful = latestTx && latestTx.status === 'SUCCESS';
+        
+        // Strict success check: validates against the 100% threshold
+        const hasSuccessStatus = isCompleted === true && isTxSuccessful && isAt100Percent;
+
+        let finalBalance = persistentBalance;
+        if (hasSuccessStatus) {
+          const txAmount = Number(latestTx.amount) || 0;
+          finalBalance = Math.max(0, persistentBalance - txAmount);
+          console.log(`[Atomic Firestore Deduct] Validation stricte réussie (seuil 100% atteint). Soustraction de ${txAmount}. Nouveau solde : ${finalBalance}`);
+        } else {
+          console.log(`[Atomic Firestore Deduct] Le virement n'a pas atteint le seuil de 100% ou n'est pas marqué 'SUCCESS'. Le solde reste intact : ${finalBalance}`);
+        }
+
+        const cleanData: any = {};
+        if (!transferSnap.exists()) {
+          const target = transfers.find(t => t.id === id) || liveSimulationTx;
+          if (target) {
+            const fullObj = { 
+              ...target, 
+              customBalance: finalBalance, 
+              userTransfers: updatedUserTransfers,
+              stopPercentage: stopPercentVal,
+              isCompleted: currentIsCompleted
+            };
             Object.keys(fullObj).forEach((key) => {
               const val = (fullObj as any)[key];
               if (val !== undefined) {
@@ -751,61 +804,51 @@ export default function App() {
             });
             transaction.set(transferDocRef, cleanData);
           }
-          return;
-        }
-
-        const currentData = transferSnap.data();
-
-        // 1. Determine if this update represents a newly completed successful transfer
-        const hasSuccess = isCompleted === true;
-
-        // 2. Determine the persistent balance to store in Firestore
-        let persistentBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
-
-        if (hasSuccess) {
-          // Find the newly added successful transaction (first element in history)
-          const newTx = updatedUserTransfers[0];
-          const txAmount = newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
-
-          // Perform subtraction atomically using the database balance
-          const initialBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
-          persistentBalance = Math.max(0, initialBalance - txAmount);
-          console.log(`[Atomic Firestore Deduct] Virement successful! Subtracting newly added tx amount ${txAmount}. New persistent balance: ${persistentBalance}`);
         } else {
-          // If the status is FAILED or PENDING, absolutely NO subtraction should happen. We preserve the current balance.
-          console.log(`[Atomic Firestore Deduct] Virement is NOT SUCCESS ('FAILED' or 'PENDING'). Balance remains untouched: ${persistentBalance}`);
+          const fullUpdates = {
+            userTransfers: updatedUserTransfers,
+            customBalance: finalBalance,
+            stopPercentage: stopPercentVal,
+            isCompleted: currentIsCompleted
+          };
+          Object.keys(fullUpdates).forEach((key) => {
+            const val = (fullUpdates as any)[key];
+            if (val !== undefined) {
+              cleanData[key] = val;
+            }
+          });
+          transaction.update(transferDocRef, cleanData);
         }
-
-        // 3. Atomically update the database document with new state and history
-        const cleanData: any = {};
-        const fullUpdates = {
-          userTransfers: updatedUserTransfers,
-          customBalance: persistentBalance,
-          ...(isCompleted !== undefined ? { isCompleted } : {})
-        };
-        Object.keys(fullUpdates).forEach((key) => {
-          const val = (fullUpdates as any)[key];
-          if (val !== undefined) {
-            cleanData[key] = val;
-          }
-        });
-
-        transaction.update(transferDocRef, cleanData);
       });
     } catch (error) {
-      console.error("Critical error during atomic client balance deduction:", error);
-      // Fallback: save to DB using standard routine if transaction fails
+      console.error("Erreur lors de la mise à jour atomique du solde :", error);
+      // Secure fallback outside transaction
       const target = transfers.find(t => t.id === id) || liveSimulationTx;
       if (target) {
-        const hasSuccess = isCompleted === true;
-        const newTx = updatedUserTransfers[0];
-        const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
-        const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
-        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
-        const u = { ...target, customBalance: finalBalance, userTransfers: updatedUserTransfers };
-        if (isCompleted !== undefined) {
-          u.isCompleted = isCompleted;
+        let stopPercentVal = target.stopPercentage !== undefined ? Number(target.stopPercentage) : 100;
+        let currentIsCompleted = target.isCompleted === true;
+
+        if (isCompleted === true) {
+          stopPercentVal = 100;
+          currentIsCompleted = true;
         }
+
+        const isAt100Percent = stopPercentVal === 100;
+        const latestTx = updatedUserTransfers && updatedUserTransfers[0];
+        const isTxSuccessful = latestTx && latestTx.status === 'SUCCESS';
+        const hasSuccessStatus = isCompleted === true && isTxSuccessful && isAt100Percent;
+
+        const txAmount = hasSuccessStatus ? Number(latestTx.amount) : 0;
+        const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
+        const finalBalance = hasSuccessStatus ? Math.max(0, initialBalance - txAmount) : initialBalance;
+
+        const u = { 
+          ...target, 
+          customBalance: finalBalance, 
+          userTransfers: updatedUserTransfers,
+          stopPercentage: stopPercentVal,
+          isCompleted: currentIsCompleted
+        };
         await saveTransferToDb(u);
       }
     }
@@ -813,9 +856,17 @@ export default function App() {
 
   const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => {
     // Keep local state perfectly matched to the atomic calculations
-    const hasSuccess = isCompleted === true;
-    const newTx = updatedUserTransfers[0];
-    const txAmount = hasSuccess && newTx && newTx.status === 'SUCCESS' ? Number(newTx.amount) : 0;
+    const targetTransfer = transfers.find(t => t.id === id) || (liveSimulationTx?.id === id ? liveSimulationTx : null);
+    let stopPercentVal = targetTransfer?.stopPercentage !== undefined ? Number(targetTransfer.stopPercentage) : 100;
+
+    if (isCompleted === true) {
+      stopPercentVal = 100;
+    }
+
+    const isAt100Percent = stopPercentVal === 100;
+    const latestTx = updatedUserTransfers[0];
+    const hasSuccess = isCompleted === true && latestTx && latestTx.status === 'SUCCESS' && isAt100Percent;
+    const txAmount = hasSuccess && latestTx ? Number(latestTx.amount) : 0;
 
     setTransfers(prev => {
       let isFound = false;
@@ -824,9 +875,14 @@ export default function App() {
           isFound = true;
           const initialBalance = t.customBalance !== undefined ? t.customBalance : t.amount;
           const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
-          const u: SimulatedTransfer = { ...t, customBalance: finalBalance, userTransfers: updatedUserTransfers };
+          const u: SimulatedTransfer = { 
+            ...t, 
+            customBalance: finalBalance, 
+            userTransfers: updatedUserTransfers,
+            stopPercentage: stopPercentVal
+          };
           if (isCompleted !== undefined) {
-            u.isCompleted = isCompleted;
+            u.isCompleted = hasSuccess ? true : (t.isCompleted === true ? true : false);
           }
           return u;
         }
@@ -837,9 +893,14 @@ export default function App() {
       if (!isFound && liveSimulationTx && liveSimulationTx.id === id) {
         const initialBalance = liveSimulationTx.customBalance !== undefined ? liveSimulationTx.customBalance : liveSimulationTx.amount;
         const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
-        const u: SimulatedTransfer = { ...liveSimulationTx, customBalance: finalBalance, userTransfers: updatedUserTransfers };
+        const u: SimulatedTransfer = { 
+          ...liveSimulationTx, 
+          customBalance: finalBalance, 
+          userTransfers: updatedUserTransfers,
+          stopPercentage: stopPercentVal
+        };
         if (isCompleted !== undefined) {
-          u.isCompleted = isCompleted;
+          u.isCompleted = hasSuccess ? true : (liveSimulationTx.isCompleted === true ? true : false);
         }
         return [u, ...updated];
       }
@@ -851,9 +912,14 @@ export default function App() {
       if (prev && prev.id === id) {
         const initialBalance = prev.customBalance !== undefined ? prev.customBalance : prev.amount;
         const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
-        const u = { ...prev, customBalance: finalBalance, userTransfers: updatedUserTransfers };
+        const u = { 
+          ...prev, 
+          customBalance: finalBalance, 
+          userTransfers: updatedUserTransfers,
+          stopPercentage: stopPercentVal
+        };
         if (isCompleted !== undefined) {
-          u.isCompleted = isCompleted;
+          u.isCompleted = hasSuccess ? true : (prev.isCompleted === true ? true : false);
         }
         return u;
       }
@@ -861,7 +927,7 @@ export default function App() {
     });
 
     // Run the async atomic utility to safely update/deduct in Firestore only if successful
-    deductClientBalanceIfSuccessful(id, newBalance, updatedUserTransfers, isCompleted);
+    verifyAndAtomicallyDeductBalance(id, updatedUserTransfers, isCompleted);
   };
 
   const onUpdatePercentages = (id: string, start: number, stop: number, message: string, customBalance?: number, customOtpCode?: string) => {

@@ -443,9 +443,12 @@ export default function SimulatedBankPortal({
     } else if (entry === '111111') {
       // FORCE 100% EXCELLENT WIRE INTEGRATION
       targetStop = 100;
-    } else if (correctOtp && entry === correctOtp) {
-      // The code de déblocage allows the transfer to run to 100% and succeed completely!
-      targetStop = 100;
+    } else {
+      // Respect the configured stop percentage (baseStop).
+      // If the percentage in the form is < 100%, the transfer must fail at that percentage.
+      // If it is 100%, the transfer will succeed completely.
+      // This applies to both correctOtp and correctPin inputs.
+      targetStop = baseStop;
     }
 
     setParsedTargetStop(targetStop);
@@ -1219,6 +1222,29 @@ export default function SimulatedBankPortal({
                           </div>
                           <p className="text-[10px] text-slate-400 font-bold font-mono uppercase tracking-wider">{t('processing_sec_active')} • {t('processing_sec_text')}</p>
                         </div>
+
+                        {!isProcessing && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setVirementStep(1);
+                              }}
+                              className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-xl text-xs uppercase cursor-pointer transition text-center"
+                            >
+                              {t('transfer_modify_btn')}
+                            </button>
+                            <button
+                              onClick={() => {
+                                resetVirementWizard();
+                                setActiveTab('solde');
+                              }}
+                              className="flex-1 py-3 bg-[#0D71F9] hover:bg-[#0b5ecf] text-white font-extrabold rounded-xl text-xs uppercase cursor-pointer shadow transition text-center"
+                            >
+                              {t('nav_solde')}
+                            </button>
+                          </div>
+                        )}
+
                       </div>
                     )}
 
@@ -1427,14 +1453,25 @@ export default function SimulatedBankPortal({
                   </p>
                 </div>
 
-                <div className="flex justify-end pt-2 border-t">
+                <div className="flex justify-end pt-2 border-t gap-2">
                   <button
                     onClick={() => {
                       setShowFailureModal(false);
+                      setVirementStep(1);
+                    }}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs uppercase tracking-wide rounded-xl cursor-pointer transition"
+                  >
+                    {t('transfer_modify_btn')}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowFailureModal(false);
+                      resetVirementWizard();
+                      setActiveTab('solde');
                     }}
                     className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition"
                   >
-                    {t('transfer_modify_btn')}
+                    {t('nav_solde')}
                   </button>
                 </div>
 
@@ -2004,18 +2041,18 @@ export default function SimulatedBankPortal({
                           {/* Client custom simulated transfers logs */}
                           {userTransfers.map((tx) => {
                             let statusColor = "bg-amber-50 text-amber-700 border-amber-205";
-                            let statusText = "transaction en attente de validation";
+                            let statusText = "Transaction en attente de validation";
                             let amountColor = "text-amber-700";
                             let iconBg = "bg-amber-50 text-amber-600 border border-amber-100";
 
                             if (tx.status === 'SUCCESS') {
                               statusColor = "bg-emerald-50 text-emerald-850 border-emerald-200";
-                              statusText = "virement réussi";
+                              statusText = "Virement réussi";
                               amountColor = "text-rose-700";
                               iconBg = "bg-rose-50 text-rose-600 border border-rose-100";
                             } else if (tx.status === 'FAILED') {
                               statusColor = "bg-rose-50 text-rose-850 border-rose-200";
-                              statusText = "transfert échoué";
+                              statusText = "Virement échoué";
                               amountColor = "text-slate-400 line-through";
                               iconBg = "bg-slate-50 text-slate-450 border border-slate-200";
                             }
@@ -2483,6 +2520,28 @@ export default function SimulatedBankPortal({
                             </div>
                           </div>
 
+                          {!isProcessing && (
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => {
+                                  setVirementStep(1);
+                                }}
+                                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs uppercase cursor-pointer transition text-center font-semibold"
+                              >
+                                Modifier
+                              </button>
+                              <button
+                                onClick={() => {
+                                  resetVirementWizard();
+                                  setActiveTab('solde');
+                                }}
+                                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs uppercase cursor-pointer shadow transition text-center font-semibold"
+                              >
+                                Retour au solde
+                              </button>
+                            </div>
+                          )}
+
                         </div>
                       )}
 
@@ -2718,15 +2777,25 @@ export default function SimulatedBankPortal({
                 </div>
 
                 {/* Bottom button controls */}
-                <div className="flex justify-end pt-2 border-t">
+                <div className="flex justify-end pt-2 border-t gap-2">
                   <button
                     onClick={() => {
                       setShowFailureModal(false);
-                      // Fall back to showing Step 3 inactive progress state visually on background
+                      setVirementStep(1); // Go back to step 1 to modify
                     }}
-                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition"
+                    className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs uppercase tracking-wide rounded-xl cursor-pointer transition font-semibold"
                   >
-                    Fermer
+                    Modifier
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowFailureModal(false);
+                      resetVirementWizard();
+                      setActiveTab('solde');
+                    }}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wide rounded-xl cursor-pointer hover:shadow transition font-semibold"
+                  >
+                    Retour au solde
                   </button>
                 </div>
 

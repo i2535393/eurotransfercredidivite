@@ -938,6 +938,7 @@ export default function App() {
         stopPercentage: stop,
         customMessage: message,
         customBalance: customBalance,
+        isCompleted: false, // Reset completed state on any manual admin configuration update
         otpCode: customOtpCode !== undefined ? customOtpCode : (t.otpCode || Math.floor(100000 + Math.random() * 900000).toString())
       } : t);
       const found = updated.find(t => t.id === id);
@@ -954,6 +955,7 @@ export default function App() {
           stopPercentage: stop,
           customMessage: message,
           customBalance: customBalance,
+          isCompleted: false, // Reset completed state on any manual admin configuration update
           otpCode: customOtpCode !== undefined ? customOtpCode : (prev.otpCode || Math.floor(100000 + Math.random() * 900000).toString())
         };
       }

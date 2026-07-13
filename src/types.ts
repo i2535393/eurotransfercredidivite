@@ -84,6 +84,7 @@ export interface SimulatedTransfer {
   emails?: SimulatedEmail[];
   customBalance?: number;
   userTransfers?: any[];
+  createdBy?: string;
 }
 
 export interface SimulatedEmail {

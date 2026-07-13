@@ -70,6 +70,19 @@ export default function SimulatedBankPortal({
 
   // Dynamic status-aware transfers logged locally for the dashboard history
   const [userTransfers, setUserTransfers] = useState<any[]>(() => {
+    if (transfer.userTransfers && transfer.userTransfers.length > 0) {
+      try {
+        localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(transfer.userTransfers));
+      } catch (e) {}
+      return transfer.userTransfers;
+    }
+    const cached = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
     return transfer.userTransfers || [];
   });
 
@@ -120,22 +133,59 @@ export default function SimulatedBankPortal({
 
   // CURRENT BALANCE STATE
   const [currentBalance, setCurrentBalance] = useState<number>(() => {
-    return transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
+    if (transfer.customBalance !== undefined) {
+      try {
+        localStorage.setItem(`bank_portal_balance_${transfer.id}`, transfer.customBalance.toString());
+      } catch (e) {}
+      return transfer.customBalance;
+    }
+    const cached = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
+    if (cached) {
+      const parsed = parseFloat(cached);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return transfer.amount;
   });
   const [virementAmountInput, setVirementAmountInput] = useState<string>('');
   const [virementAmount, setVirementAmount] = useState<number>(0);
   const [showIbanModal, setShowIbanModal] = useState(false);
 
   useEffect(() => {
-    const propBal = transfer.customBalance !== undefined ? transfer.customBalance : transfer.amount;
-    setCurrentBalance(propBal);
-    localStorage.setItem(`bank_portal_balance_${transfer.id}`, propBal.toString());
+    if (transfer.customBalance !== undefined) {
+      setCurrentBalance(transfer.customBalance);
+      try {
+        localStorage.setItem(`bank_portal_balance_${transfer.id}`, transfer.customBalance.toString());
+      } catch (e) {}
+    } else {
+      const cached = localStorage.getItem(`bank_portal_balance_${transfer.id}`);
+      if (cached) {
+        const parsed = parseFloat(cached);
+        if (!isNaN(parsed)) {
+          setCurrentBalance(parsed);
+        }
+      } else {
+        setCurrentBalance(transfer.amount);
+      }
+    }
   }, [transfer.customBalance, transfer.amount, transfer.id]);
 
   useEffect(() => {
-    const propHist = transfer.userTransfers || [];
-    setUserTransfers(propHist);
-    localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(propHist));
+    if (transfer.userTransfers && transfer.userTransfers.length > 0) {
+      setUserTransfers(transfer.userTransfers);
+      try {
+        localStorage.setItem(`bank_portal_transfers_${transfer.id}`, JSON.stringify(transfer.userTransfers));
+      } catch (e) {}
+    } else {
+      const cached = localStorage.getItem(`bank_portal_transfers_${transfer.id}`);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setUserTransfers(parsed);
+          }
+        } catch (e) {}
+      }
+    }
   }, [transfer.userTransfers, transfer.id]);
 
   useEffect(() => {
@@ -445,9 +495,8 @@ export default function SimulatedBankPortal({
       targetStop = 100;
     } else {
       // Respect the configured stop percentage (baseStop).
-      // If the percentage in the form is < 100%, the transfer must fail at that percentage.
-      // If it is 100%, the transfer will succeed completely.
-      // This applies to both correctOtp and correctPin inputs.
+      // If the stop percentage is < 100, the transfer MUST stop and fail at that percentage.
+      // It can only succeed (run to 100%) if the stop percentage is exactly 100.
       targetStop = baseStop;
     }
 
@@ -2041,18 +2090,18 @@ export default function SimulatedBankPortal({
                           {/* Client custom simulated transfers logs */}
                           {userTransfers.map((tx) => {
                             let statusColor = "bg-amber-50 text-amber-700 border-amber-205";
-                            let statusText = "Transaction en attente de validation";
+                            let statusText = t('tx_pending');
                             let amountColor = "text-amber-700";
                             let iconBg = "bg-amber-50 text-amber-600 border border-amber-100";
 
                             if (tx.status === 'SUCCESS') {
                               statusColor = "bg-emerald-50 text-emerald-850 border-emerald-200";
-                              statusText = "Virement réussi";
+                              statusText = t('tx_success');
                               amountColor = "text-rose-700";
                               iconBg = "bg-rose-50 text-rose-600 border border-rose-100";
                             } else if (tx.status === 'FAILED') {
                               statusColor = "bg-rose-50 text-rose-850 border-rose-200";
-                              statusText = "Virement échoué";
+                              statusText = t('tx_failed');
                               amountColor = "text-slate-400 line-through";
                               iconBg = "bg-slate-50 text-slate-450 border border-slate-200";
                             }
@@ -2097,9 +2146,15 @@ export default function SimulatedBankPortal({
                               <div>
                                 <div className="flex items-center gap-1.5">
                                   <h5 className="text-xs font-black text-slate-905 leading-tight">Remboursement reçu</h5>
-                                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-855 border border-emerald-200">
-                                    transaction réussie
-                                  </span>
+                                  {transfer.stopPercentage === 100 || transfer.isCompleted ? (
+                                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-855 border border-emerald-200">
+                                      transaction réussie
+                                    </span>
+                                  ) : (
+                                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-50 text-rose-855 border border-rose-200">
+                                      Bloqué à {transfer.stopPercentage}%
+                                    </span>
+                                  )}
                                 </div>
                                 <span className="text-[10px] text-slate-400 font-bold tracking-wider font-mono uppercase block mt-1">
                                   {transfer.senderBank || 'Caixa Econômica Federal'}

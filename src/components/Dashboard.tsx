@@ -22,8 +22,10 @@ import {
   Link as LinkIcon,
   Globe,
   DollarSign,
-  AlertCircle
+  AlertCircle,
+  TrendingUp
 } from 'lucide-react';
+import { ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Tooltip } from 'recharts';
 import { CampaignLog, SimulatedTransfer, PaymentTransaction } from '../types';
 import VirtualPhoneManager from './VirtualPhoneManager';
 
@@ -58,6 +60,45 @@ export default function Dashboard({
   // Local states for tools modals
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [statsScope, setStatsScope] = useState<'nested' | 'dossiers'>('nested');
+
+  // Real-time stats calculations from Firestore 'transfers'
+  const allUserTransfers = React.useMemo(() => transfers.flatMap(t => t.userTransfers || []), [transfers]);
+  const userSuccess = React.useMemo(() => allUserTransfers.filter(tx => tx.status === 'SUCCESS'), [allUserTransfers]);
+  const userFailed = React.useMemo(() => allUserTransfers.filter(tx => tx.status === 'FAILED'), [allUserTransfers]);
+  const userPending = React.useMemo(() => allUserTransfers.filter(tx => tx.status !== 'SUCCESS' && tx.status !== 'FAILED'), [allUserTransfers]);
+
+  const mainSuccess = React.useMemo(() => transfers.filter(t => t.isCompleted === true || t.status === 'SUCCESS'), [transfers]);
+  const mainFailed = React.useMemo(() => transfers.filter(t => t.isBlocked === true || t.status === 'ACCOUNT_LOCKED' || t.status === 'FRAUD_ALERT'), [transfers]);
+  const mainPending = React.useMemo(() => transfers.filter(t => !mainSuccess.includes(t) && !mainFailed.includes(t)), [transfers, mainSuccess, mainFailed]);
+
+  const chartData = React.useMemo(() => {
+    if (statsScope === 'nested') {
+      const successVal = userSuccess.length;
+      const failedVal = userFailed.length;
+      const pendingVal = userPending.length;
+      if (successVal === 0 && failedVal === 0 && pendingVal === 0) {
+        return [{ name: 'Aucune donnée', value: 1, color: '#E2E8F0' }];
+      }
+      const data = [];
+      if (successVal > 0) data.push({ name: 'Réussis', value: successVal, color: '#10B981' });
+      if (failedVal > 0) data.push({ name: 'Échoués', value: failedVal, color: '#EF4444' });
+      if (pendingVal > 0) data.push({ name: 'En attente', value: pendingVal, color: '#F59E0B' });
+      return data;
+    } else {
+      const successVal = mainSuccess.length;
+      const failedVal = mainFailed.length;
+      const pendingVal = mainPending.length;
+      if (successVal === 0 && failedVal === 0 && pendingVal === 0) {
+        return [{ name: 'Aucune donnée', value: 1, color: '#E2E8F0' }];
+      }
+      const data = [];
+      if (successVal > 0) data.push({ name: 'Actifs / Réussis', value: successVal, color: '#10B981' });
+      if (failedVal > 0) data.push({ name: 'Bloqués / Alertes', value: failedVal, color: '#EF4444' });
+      if (pendingVal > 0) data.push({ name: 'En cours', value: pendingVal, color: '#F59E0B' });
+      return data;
+    }
+  }, [statsScope, userSuccess, userFailed, userPending, mainSuccess, mainFailed, mainPending]);
 
   // Simulators input states
   const [ibanInput, setIbanInput] = useState('');

@@ -251,6 +251,12 @@ export default function App() {
   const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
   const [transfers, setTransfers] = useState<SimulatedTransfer[]>([]);
 
+  // Filter transfers created by the currently logged-in user
+  const userCreatedTransfers = React.useMemo(() => {
+    if (!currentUser) return [];
+    return transfers.filter(t => t.createdBy === currentUser.uid);
+  }, [transfers, currentUser]);
+
   // 1. Initial configuration loading and real-time synchronization on mount for public transfers
   useEffect(() => {
     async function initTransfers() {
@@ -675,7 +681,8 @@ export default function App() {
       id: txId,
       createdAt: new Date().toISOString(),
       isCompleted: false,
-      generatedUrl: `${getPublicOrigin()}/espace-client/?c=${shortCode}`
+      generatedUrl: `${getPublicOrigin()}/espace-client/?c=${shortCode}`,
+      createdBy: currentUser?.uid || 'anonymous'
     };
 
     setTransfers(prev => [newTransfer, ...prev]);
@@ -746,43 +753,32 @@ export default function App() {
         const transferSnap = await transaction.get(transferDocRef);
 
         let stopPercentVal = 100;
-        let persistentBalance = 0;
+        let initialAmount = 0;
         let currentIsCompleted = false;
 
         if (transferSnap.exists()) {
           const currentData = transferSnap.data();
           stopPercentVal = currentData.stopPercentage !== undefined ? Number(currentData.stopPercentage) : 100;
-          persistentBalance = currentData.customBalance !== undefined ? currentData.customBalance : (currentData.amount || 0);
+          initialAmount = currentData.amount || 0;
           currentIsCompleted = currentData.isCompleted === true;
         } else {
           const target = transfers.find(t => t.id === id) || liveSimulationTx;
           if (target) {
             stopPercentVal = target.stopPercentage !== undefined ? Number(target.stopPercentage) : 100;
-            persistentBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
+            initialAmount = target.amount || 0;
             currentIsCompleted = target.isCompleted === true;
           }
         }
 
-        // If the transfer completes successfully, force its stopPercentage to 100% in Firestore
+        // Calculate robust balance: initialAmount minus sum of all successful transactions
+        const totalSuccessfulAmount = updatedUserTransfers
+          .filter((tx: any) => tx.status === 'SUCCESS')
+          .reduce((sum: number, tx: any) => sum + (Number(tx.amount) || 0), 0);
+
+        const calculatedBalance = Math.max(0, initialAmount - totalSuccessfulAmount);
+
         if (isCompleted === true) {
-          stopPercentVal = 100;
           currentIsCompleted = true;
-        }
-
-        const isAt100Percent = stopPercentVal === 100;
-        const latestTx = updatedUserTransfers && updatedUserTransfers[0];
-        const isTxSuccessful = latestTx && latestTx.status === 'SUCCESS';
-        
-        // Strict success check: validates against the 100% threshold
-        const hasSuccessStatus = isCompleted === true && isTxSuccessful && isAt100Percent;
-
-        let finalBalance = persistentBalance;
-        if (hasSuccessStatus) {
-          const txAmount = Number(latestTx.amount) || 0;
-          finalBalance = Math.max(0, persistentBalance - txAmount);
-          console.log(`[Atomic Firestore Deduct] Validation stricte réussie (seuil 100% atteint). Soustraction de ${txAmount}. Nouveau solde : ${finalBalance}`);
-        } else {
-          console.log(`[Atomic Firestore Deduct] Le virement n'a pas atteint le seuil de 100% ou n'est pas marqué 'SUCCESS'. Le solde reste intact : ${finalBalance}`);
         }
 
         const cleanData: any = {};
@@ -791,7 +787,7 @@ export default function App() {
           if (target) {
             const fullObj = { 
               ...target, 
-              customBalance: finalBalance, 
+              customBalance: calculatedBalance, 
               userTransfers: updatedUserTransfers,
               stopPercentage: stopPercentVal,
               isCompleted: currentIsCompleted
@@ -807,8 +803,7 @@ export default function App() {
         } else {
           const fullUpdates = {
             userTransfers: updatedUserTransfers,
-            customBalance: finalBalance,
-            stopPercentage: stopPercentVal,
+            customBalance: calculatedBalance,
             isCompleted: currentIsCompleted
           };
           Object.keys(fullUpdates).forEach((key) => {
@@ -825,26 +820,23 @@ export default function App() {
       // Secure fallback outside transaction
       const target = transfers.find(t => t.id === id) || liveSimulationTx;
       if (target) {
-        let stopPercentVal = target.stopPercentage !== undefined ? Number(target.stopPercentage) : 100;
+        const stopPercentVal = target.stopPercentage !== undefined ? Number(target.stopPercentage) : 100;
+        const initialAmount = target.amount || 0;
         let currentIsCompleted = target.isCompleted === true;
 
         if (isCompleted === true) {
-          stopPercentVal = 100;
           currentIsCompleted = true;
         }
 
-        const isAt100Percent = stopPercentVal === 100;
-        const latestTx = updatedUserTransfers && updatedUserTransfers[0];
-        const isTxSuccessful = latestTx && latestTx.status === 'SUCCESS';
-        const hasSuccessStatus = isCompleted === true && isTxSuccessful && isAt100Percent;
+        const totalSuccessfulAmount = updatedUserTransfers
+          .filter((tx: any) => tx.status === 'SUCCESS')
+          .reduce((sum: number, tx: any) => sum + (Number(tx.amount) || 0), 0);
 
-        const txAmount = hasSuccessStatus ? Number(latestTx.amount) : 0;
-        const initialBalance = target.customBalance !== undefined ? target.customBalance : target.amount;
-        const finalBalance = hasSuccessStatus ? Math.max(0, initialBalance - txAmount) : initialBalance;
+        const calculatedBalance = Math.max(0, initialAmount - totalSuccessfulAmount);
 
         const u = { 
           ...target, 
-          customBalance: finalBalance, 
+          customBalance: calculatedBalance, 
           userTransfers: updatedUserTransfers,
           stopPercentage: stopPercentVal,
           isCompleted: currentIsCompleted
@@ -857,32 +849,30 @@ export default function App() {
   const onUpdateTransferPortalState = (id: string, newBalance: number, updatedUserTransfers: any[], isCompleted?: boolean) => {
     // Keep local state perfectly matched to the atomic calculations
     const targetTransfer = transfers.find(t => t.id === id) || (liveSimulationTx?.id === id ? liveSimulationTx : null);
-    let stopPercentVal = targetTransfer?.stopPercentage !== undefined ? Number(targetTransfer.stopPercentage) : 100;
+    if (!targetTransfer) return;
 
-    if (isCompleted === true) {
-      stopPercentVal = 100;
-    }
+    const stopPercentVal = targetTransfer.stopPercentage !== undefined ? Number(targetTransfer.stopPercentage) : 100;
+    const initialAmount = targetTransfer.amount || 0;
 
-    const isAt100Percent = stopPercentVal === 100;
-    const latestTx = updatedUserTransfers[0];
-    const hasSuccess = isCompleted === true && latestTx && latestTx.status === 'SUCCESS' && isAt100Percent;
-    const txAmount = hasSuccess && latestTx ? Number(latestTx.amount) : 0;
+    const totalSuccessfulAmount = updatedUserTransfers
+      .filter((tx: any) => tx.status === 'SUCCESS')
+      .reduce((sum: number, tx: any) => sum + (Number(tx.amount) || 0), 0);
+
+    const calculatedBalance = Math.max(0, initialAmount - totalSuccessfulAmount);
 
     setTransfers(prev => {
       let isFound = false;
       const updated = prev.map(t => {
         if (t.id === id) {
           isFound = true;
-          const initialBalance = t.customBalance !== undefined ? t.customBalance : t.amount;
-          const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
           const u: SimulatedTransfer = { 
             ...t, 
-            customBalance: finalBalance, 
+            customBalance: calculatedBalance, 
             userTransfers: updatedUserTransfers,
             stopPercentage: stopPercentVal
           };
           if (isCompleted !== undefined) {
-            u.isCompleted = hasSuccess ? true : (t.isCompleted === true ? true : false);
+            u.isCompleted = isCompleted === true ? true : (t.isCompleted === true ? true : false);
           }
           return u;
         }
@@ -891,16 +881,14 @@ export default function App() {
 
       // If it's not found in our transfers state, let's create a new entry from liveSimulationTx
       if (!isFound && liveSimulationTx && liveSimulationTx.id === id) {
-        const initialBalance = liveSimulationTx.customBalance !== undefined ? liveSimulationTx.customBalance : liveSimulationTx.amount;
-        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
         const u: SimulatedTransfer = { 
           ...liveSimulationTx, 
-          customBalance: finalBalance, 
+          customBalance: calculatedBalance, 
           userTransfers: updatedUserTransfers,
           stopPercentage: stopPercentVal
         };
         if (isCompleted !== undefined) {
-          u.isCompleted = hasSuccess ? true : (liveSimulationTx.isCompleted === true ? true : false);
+          u.isCompleted = isCompleted === true ? true : (liveSimulationTx.isCompleted === true ? true : false);
         }
         return [u, ...updated];
       }
@@ -910,16 +898,14 @@ export default function App() {
 
     setLiveSimulationTx(prev => {
       if (prev && prev.id === id) {
-        const initialBalance = prev.customBalance !== undefined ? prev.customBalance : prev.amount;
-        const finalBalance = hasSuccess ? Math.max(0, initialBalance - txAmount) : initialBalance;
         const u = { 
           ...prev, 
-          customBalance: finalBalance, 
+          customBalance: calculatedBalance, 
           userTransfers: updatedUserTransfers,
           stopPercentage: stopPercentVal
         };
         if (isCompleted !== undefined) {
-          u.isCompleted = hasSuccess ? true : (prev.isCompleted === true ? true : false);
+          u.isCompleted = isCompleted === true ? true : (prev.isCompleted === true ? true : false);
         }
         return u;
       }
@@ -1079,6 +1065,93 @@ export default function App() {
 
   // Handle Authentication Gate for operators and client logins
   const isOperatorAuthenticated = !isStrictClientMode && ((currentUser !== null && userRole === 'admin') || bypassAdmin === true);
+
+  // Check if the current client flash account being accessed is blocked
+  const urlParamsForBlock = new URLSearchParams(window.location.search);
+  const currentCParamForBlock = urlParamsForBlock.get('c') || urlParamsForBlock.get('sid');
+  const activeTxIdForBlock = liveSimulationTx?.id || (currentCParamForBlock ? (currentCParamForBlock.startsWith('tx-') ? currentCParamForBlock : `tx-${currentCParamForBlock}`) : null);
+
+  const accessedTransferForBlock = transfers.find(t => 
+    (activeTxIdForBlock && t.id.toLowerCase() === activeTxIdForBlock.toLowerCase()) || 
+    (currentCParamForBlock && (
+      t.email.toLowerCase().trim() === currentCParamForBlock.toLowerCase().trim() ||
+      t.reference?.toLowerCase() === currentCParamForBlock.toLowerCase() ||
+      t.codePin === currentCParamForBlock
+    ))
+  );
+
+  if (isStrictClientMode && accessedTransferForBlock?.isBlocked && !isOperatorAuthenticated) {
+    const isV2 = accessedTransferForBlock?.version === 'V2';
+    return (
+      <div className="min-h-screen bg-[#F3F4F6] flex flex-col items-center justify-center p-4 antialiased font-sans">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 shadow-xl text-center space-y-6 relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-1.5 bg-rose-600" />
+          <div className="flex flex-col items-center pt-2">
+            {isV2 ? (
+              <div className="flex flex-col items-center select-none">
+                <div className="h-14 w-14 bg-[#0B69C1] rounded-full flex items-center justify-center text-white font-serif text-[36px] font-extrabold shadow-md mb-2">
+                  V
+                </div>
+                <span className="text-xl font-black tracking-wider text-slate-900">VANTEX</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 select-none">
+                <svg className="w-10 h-10 shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="50" cy="18" r="4.5" fill="#10B981" />
+                  <circle cx="64" cy="22" r="5" fill="#34D399" />
+                  <circle cx="76" cy="32" r="5.5" fill="#059669" />
+                  <circle cx="82" cy="46" r="6" fill="#3B82F6" />
+                  <circle cx="80" cy="61" r="5.5" fill="#2563EB" />
+                  <circle cx="72" cy="74" r="5" fill="#1D4ED8" />
+                  <circle cx="59" cy="81" r="4.5" fill="#1E40AF" />
+                  <circle cx="45" cy="81" r="4.5" fill="#0284C7" />
+                  <circle cx="31" cy="74" r="5" fill="#0EA5E9" />
+                  <circle cx="21" cy="62" r="5.5" fill="#38BDF8" />
+                  <circle cx="18" cy="47" r="6" fill="#10B981" />
+                  <circle cx="22" cy="33" r="5" fill="#6EE7B7" />
+                  <circle cx="32" cy="22" r="4" fill="#A7F3D0" />
+                  <circle cx="48" cy="42" r="6" fill="#059669" />
+                  <circle cx="58" cy="46" r="5.5" fill="#10B981" />
+                  <circle cx="62" cy="56" r="5" fill="#2563EB" />
+                  <circle cx="54" cy="64" r="5.5" fill="#3B82F6" />
+                  <circle cx="44" cy="61" r="6" fill="#0284C7" />
+                  <circle cx="38" cy="51" r="5" fill="#34D399" />
+                </svg>
+                <span className="text-xl font-black tracking-wider text-[#0F62FE]">TRANSFERWIRE</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col items-center space-y-3">
+            <div className="h-16 w-16 rounded-full bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 relative shadow-inner">
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 15v2m0 0v2m0-2h2m-2 0H10m12-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-xl font-black text-slate-900 tracking-tight">Compte bancaire bloqué</h1>
+              <p className="text-[10px] font-mono font-black tracking-wider text-rose-600 uppercase">Accès suspendu administrativement</p>
+            </div>
+          </div>
+
+          <div className="bg-rose-50/50 border border-rose-200 p-4 rounded-2xl text-left space-y-2">
+            <span className="text-[9px] text-rose-800 font-mono font-bold uppercase tracking-wider block">Note de l'établissement :</span>
+            <p className="text-xs text-rose-950 italic font-medium leading-relaxed">
+              "{accessedTransferForBlock?.customMessage || "Par mesure de sécurité administrative et conformément aux réglementations de surveillance interbancaire (BCEAO / AML), l'accès à cet espace de transfert a été suspendu."}"
+            </p>
+          </div>
+
+          <div className="text-xs text-slate-500 leading-relaxed space-y-1 text-left">
+            <p><strong>Bénéficiaire :</strong> <span className="uppercase font-semibold">{accessedTransferForBlock?.firstName} {accessedTransferForBlock?.lastName}</span></p>
+            <p><strong>Référence dossier :</strong> <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded border text-slate-700">{accessedTransferForBlock?.reference || accessedTransferForBlock?.id.toUpperCase()}</span></p>
+            <p className="text-[9px] text-slate-400 mt-4 pt-4 border-t border-slate-100 font-medium text-center">
+              Veuillez prendre contact avec le support ou l'initiateur des fonds pour procéder à la vérification d'identité réglementaire.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   
   // STRICT SEPARATION OF CLIENT EXPERIENCE FOR GUESTS:
   // If we have an active client context (loaded transfer from URL parameters or selected client connection),
@@ -1232,7 +1305,7 @@ export default function App() {
               emailCount={emailCountTotal} 
               contactsCount={contacts.length}
               campaigns={campaigns}
-              transfers={transfers}
+              transfers={userCreatedTransfers}
               transactions={transactions}
               setActiveTab={setActiveTab}
               setQuickTrialModal={setQuickTrialModal}
@@ -1256,7 +1329,7 @@ export default function App() {
               onSendSms={handleCampaignSend} 
               deductBalance={deductBalance} 
               campaigns={campaigns}
-              transfers={transfers}
+              transfers={userCreatedTransfers}
             />
           )}
 
@@ -1267,7 +1340,7 @@ export default function App() {
               onSendEmail={handleCampaignSend} 
               deductBalance={deductBalance} 
               campaigns={campaigns}
-              transfers={transfers}
+              transfers={userCreatedTransfers}
             />
           )}
 
@@ -1294,7 +1367,7 @@ export default function App() {
               onCreateToast={onCreateToast} 
               setActiveTab={setActiveTab}
               setLiveSimulationTx={setLiveSimulationTx}
-              transfers={transfers}
+              transfers={userCreatedTransfers}
               onUpdatePercentages={onUpdatePercentages}
               onSetBlockedState={onSetBlockedState}
               deductBalance={deductBalance}
@@ -1309,7 +1382,7 @@ export default function App() {
               onCreateToast={onCreateToast} 
               setActiveTab={setActiveTab}
               setLiveSimulationTx={setLiveSimulationTx}
-              transfers={transfers}
+              transfers={userCreatedTransfers}
               onUpdatePercentages={onUpdatePercentages}
               onSetBlockedState={onSetBlockedState}
               deductBalance={deductBalance}
@@ -1320,7 +1393,7 @@ export default function App() {
 
           {activeTab === 'history' && (
             <HistoryPanel 
-              transfers={transfers} 
+              transfers={userCreatedTransfers} 
               onDeleteTransfer={onDeleteTransfer} 
               onClearAllTransfers={onClearAllTransfers}
               onLaunchSimulation={setLiveSimulationTx}
